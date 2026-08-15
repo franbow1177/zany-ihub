@@ -1,20 +1,28 @@
-import { describe, expect, test } from "bun:test";
-import { assertParentIsFolder, RESOURCE_KINDS } from "./resource-rules";
+import { describe, expect, test } from "bun:test"
+import { assertParentIsFolder, RESOURCE_KINDS } from "./resource-rules"
 
 describe("resource rules", () => {
-  test("exposes the four kinds", () => {
-    expect(RESOURCE_KINDS).toEqual(["folder", "file", "doc", "table"]);
-  });
+  test("exposes every resource kind", () => {
+    expect(RESOURCE_KINDS).toEqual([
+      "folder",
+      "file",
+      "doc",
+      "table",
+      "whiteboard",
+      "project",
+      "bookmark",
+    ])
+  })
 
   test("allows null parent", () => {
-    expect(() => assertParentIsFolder(null)).not.toThrow();
-  });
+    expect(() => assertParentIsFolder(null)).not.toThrow()
+  })
 
   test("rejects non-folder parent", () => {
-    expect(() => assertParentIsFolder({ kind: "doc" })).toThrow();
-  });
+    expect(() => assertParentIsFolder({ kind: "doc" })).toThrow()
+  })
 
   test("allows folder parent", () => {
-    expect(() => assertParentIsFolder({ kind: "folder" })).not.toThrow();
-  });
-});
+    expect(() => assertParentIsFolder({ kind: "folder" })).not.toThrow()
+  })
+})

@@ -61,8 +61,20 @@ async function createResource(
   workspaceId: string,
   input: {
     name: string
-    kind: "folder" | "file" | "doc" | "table"
+    kind:
+      | "folder"
+      | "file"
+      | "doc"
+      | "table"
+      | "whiteboard"
+      | "project"
+      | "bookmark"
     parentId?: string
+    description?: string | null
+    icon?: string | null
+    bookmark?:
+      | { type: "resource"; resourceId: string }
+      | { type: "url"; url: string }
   }
 ) {
   const response = await request(
@@ -80,6 +92,8 @@ async function createResource(
     parentId: string | null
     name: string
     kind: string
+    description: string | null
+    icon: string | null
   }
 }
 
@@ -131,6 +145,39 @@ describe("resource routes", () => {
     })
   })
 
+  test("creates and updates shared resource description and icon", async () => {
+    const workspace = await createWorkspace("Resource Metadata")
+    const resource = await createResource(workspace.id, {
+      name: "Launch plan",
+      kind: "project",
+      description: "Ship the next release",
+      icon: "🚀",
+    })
+
+    expect(resource).toMatchObject({
+      description: "Ship the next release",
+      icon: "🚀",
+    })
+
+    const response = await request(
+      `/resources/${resource.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          description: "Updated plan",
+          icon: null,
+        }),
+      },
+      ownerHeaders
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      description: "Updated plan",
+      icon: null,
+    })
+  })
+
   test("creates and lists a doc under a folder", async () => {
     const workspace = await createWorkspace("Nested Resources")
     const folder = await createResource(workspace.id, {
@@ -152,6 +199,33 @@ describe("resource routes", () => {
     )
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual([doc])
+  })
+
+  test("lists every resource in a workspace for shell navigation", async () => {
+    const workspace = await createWorkspace("All Resources")
+    const folder = await createResource(workspace.id, {
+      name: "Projects",
+      kind: "folder",
+    })
+    const doc = await createResource(workspace.id, {
+      name: "Nested roadmap",
+      kind: "doc",
+      parentId: folder.id,
+    })
+
+    const response = await request(
+      `/workspaces/${workspace.id}/resources?scope=all`,
+      {},
+      ownerHeaders
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: folder.id }),
+        expect.objectContaining({ id: doc.id, parentId: folder.id }),
+      ])
+    )
   })
 
   test("rejects a parent that is not a folder", async () => {
@@ -288,6 +362,207 @@ describe("resource routes", () => {
     )
 
     expect(response.status).toBe(409)
+  })
+
+  test("returns a single resource for members", async () => {
+    const workspace = await createWorkspace("Resource Detail")
+    const resource = await createResource(workspace.id, {
+      name: "Notes",
+      kind: "doc",
+    })
+
+    const response = await request(
+      `/resources/${resource.id}`,
+      {},
+      ownerHeaders
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      id: resource.id,
+      name: "Notes",
+      kind: "doc",
+      workspaceId: workspace.id,
+    })
+  })
+
+  test("creates a resource_file row for file kind resources", async () => {
+    const workspace = await createWorkspace("File Resource")
+    const resource = await createResource(workspace.id, {
+      name: "Upload me",
+      kind: "file",
+    })
+
+    const response = await request(
+      `/resources/${resource.id}`,
+      {},
+      ownerHeaders
+    )
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      id: resource.id,
+      kind: "file",
+      file: { uploaded: false },
+    })
+  })
+
+  test("creates and saves a whiteboard with optimistic revisions", async () => {
+    const workspace = await createWorkspace("Whiteboard Resource")
+    const resource = await createResource(workspace.id, {
+      name: "Ideas",
+      kind: "whiteboard",
+    })
+
+    const initialResponse = await request(
+      `/resources/${resource.id}/whiteboard`,
+      {},
+      ownerHeaders
+    )
+    expect(initialResponse.status).toBe(200)
+    expect(await initialResponse.json()).toMatchObject({
+      revision: 0,
+      scene: { elements: [], appState: {} },
+      assets: [],
+    })
+
+    const scene = {
+      elements: [{ id: "shape-1", type: "rectangle" }],
+      appState: { viewBackgroundColor: "#ffffff" },
+    }
+    const saveResponse = await request(
+      `/resources/${resource.id}/whiteboard`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ revision: 0, scene }),
+      },
+      ownerHeaders
+    )
+    expect(saveResponse.status).toBe(200)
+    expect(await saveResponse.json()).toMatchObject({ revision: 1, scene })
+
+    const staleResponse = await request(
+      `/resources/${resource.id}/whiteboard`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ revision: 0, scene }),
+      },
+      ownerHeaders
+    )
+    expect(staleResponse.status).toBe(409)
+  })
+
+  test("creates a project and manages its tasks", async () => {
+    const workspace = await createWorkspace("Project Resource")
+    const resource = await createResource(workspace.id, {
+      name: "Launch",
+      kind: "project",
+    })
+
+    const createTaskResponse = await request(
+      `/resources/${resource.id}/tasks`,
+      {
+        method: "POST",
+        body: JSON.stringify({ title: "Ship the first release" }),
+      },
+      ownerHeaders
+    )
+    expect(createTaskResponse.status).toBe(200)
+    const task = (await createTaskResponse.json()) as { id: string }
+
+    const updateTaskResponse = await request(
+      `/tasks/${task.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ status: "done" }),
+      },
+      ownerHeaders
+    )
+    expect(updateTaskResponse.status).toBe(200)
+    expect(await updateTaskResponse.json()).toMatchObject({
+      id: task.id,
+      status: "done",
+    })
+
+    const projectResponse = await request(
+      `/resources/${resource.id}/project`,
+      {},
+      ownerHeaders
+    )
+    expect(projectResponse.status).toBe(200)
+    expect(await projectResponse.json()).toMatchObject({
+      project: { id: resource.id, status: "active" },
+      tasks: [{ id: task.id, status: "done" }],
+    })
+  })
+
+  test("creates bookmarks for external URLs and workspace resources", async () => {
+    const workspace = await createWorkspace("Bookmark Resource")
+    const target = await createResource(workspace.id, {
+      name: "Target document",
+      kind: "doc",
+    })
+    const external = await createResource(workspace.id, {
+      name: "Example",
+      kind: "bookmark",
+      bookmark: { type: "url", url: "https://example.com" },
+    })
+    const internal = await createResource(workspace.id, {
+      name: "Document shortcut",
+      kind: "bookmark",
+      bookmark: { type: "resource", resourceId: target.id },
+    })
+
+    const externalResponse = await request(
+      `/resources/${external.id}/bookmark`,
+      {},
+      ownerHeaders
+    )
+    expect(externalResponse.status).toBe(200)
+    expect(await externalResponse.json()).toMatchObject({
+      target: { type: "url", url: "https://example.com/" },
+    })
+
+    const internalResponse = await request(
+      `/resources/${internal.id}/bookmark`,
+      {},
+      ownerHeaders
+    )
+    expect(internalResponse.status).toBe(200)
+    expect(await internalResponse.json()).toMatchObject({
+      target: {
+        type: "resource",
+        resourceId: target.id,
+        resource: { id: target.id, name: "Target document", kind: "doc" },
+      },
+    })
+  })
+
+  test("requires a valid target when creating a bookmark", async () => {
+    const workspace = await createWorkspace("Invalid Bookmark")
+
+    const missingResponse = await request(
+      `/workspaces/${workspace.id}/resources`,
+      {
+        method: "POST",
+        body: JSON.stringify({ name: "Missing", kind: "bookmark" }),
+      },
+      ownerHeaders
+    )
+    expect(missingResponse.status).toBe(400)
+
+    const unsafeResponse = await request(
+      `/workspaces/${workspace.id}/resources`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Unsafe",
+          kind: "bookmark",
+          bookmark: { type: "url", url: "javascript:alert(1)" },
+        }),
+      },
+      ownerHeaders
+    )
+    expect(unsafeResponse.status).toBe(400)
   })
 
   test("forbids non-members from listing resources", async () => {

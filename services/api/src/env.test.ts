@@ -24,6 +24,13 @@ describe("server environment", () => {
   })
 
   test("allows Google OAuth credentials to be omitted", () => {
-    expect(readServerEnv(completeEnv)).toEqual(completeEnv)
+    expect(readServerEnv(completeEnv)).toEqual({
+      ...completeEnv,
+      S3_ENDPOINT: "http://localhost:9000",
+      S3_ACCESS_KEY_ID: "minioadmin",
+      S3_SECRET_ACCESS_KEY: "minioadmin",
+      S3_BUCKET: "zany-ihub",
+      S3_REGION: "us-east-1",
+    })
   })
 })

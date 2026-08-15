@@ -137,6 +137,7 @@ export const workspaceRoutes = new Elysia({ name: "workspace-routes" })
         ...created,
         name: target.name,
         email: target.email,
+        image: target.image,
       }
     },
     {
@@ -162,6 +163,7 @@ export const workspaceRoutes = new Elysia({ name: "workspace-routes" })
         createdAt: schema.workspaceMember.createdAt,
         name: schema.user.name,
         email: schema.user.email,
+        image: schema.user.image,
       })
       .from(schema.workspaceMember)
       .innerJoin(schema.user, eq(schema.workspaceMember.userId, schema.user.id))

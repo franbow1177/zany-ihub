@@ -1,0 +1,17 @@
+.git
+.github
+.turbo
+.superpowers
+**/node_modules
+**/dist
+**/.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+docs
+README.md
+.prettierrc
+.prettierignore
+.tsbuildinfo
+**/*.tsbuildinfo

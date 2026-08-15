@@ -8,6 +8,27 @@
       "when": 1786775948459,
       "tag": "0000_smart_may_parker",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786784903051,
+      "tag": "0001_equal_emma_frost",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786787973606,
+      "tag": "0002_classy_union_jack",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786789550870,
+      "tag": "0003_sudden_yellow_claw",
+      "breakpoints": true
     }
   ]
 }

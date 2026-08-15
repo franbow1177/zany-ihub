@@ -19,6 +19,12 @@ export function readServerEnv(environment: Environment) {
     BETTER_AUTH_SECRET: environment.BETTER_AUTH_SECRET as string,
     BETTER_AUTH_URL: environment.BETTER_AUTH_URL as string,
     WEB_ORIGIN: environment.WEB_ORIGIN as string,
+    S3_ENDPOINT: environment.S3_ENDPOINT?.trim() || "http://localhost:9000",
+    S3_ACCESS_KEY_ID: environment.S3_ACCESS_KEY_ID?.trim() || "minioadmin",
+    S3_SECRET_ACCESS_KEY:
+      environment.S3_SECRET_ACCESS_KEY?.trim() || "minioadmin",
+    S3_BUCKET: environment.S3_BUCKET?.trim() || "zany-ihub",
+    S3_REGION: environment.S3_REGION?.trim() || "us-east-1",
   }
 }
 

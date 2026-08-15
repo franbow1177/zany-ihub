@@ -1,8 +1,11 @@
+name: zany-ihub
+
 services:
   postgres:
     image: postgres:16-alpine
     ports:
-      - "5432:5432"
+      # Host 5433 — OrbStack often already has another Postgres on 5432
+      - "5433:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -15,5 +18,101 @@ services:
       timeout: 5s
       retries: 10
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 minioadmin minioadmin
+        mc mb -p local/zany-ihub || true
+        exit 0
+    restart: "no"
+
+  migrate:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/zany_ihub
+    depends_on:
+      postgres:
+        condition: service_healthy
+    working_dir: /app/packages/db
+    command: ["bun", "run", "migrate"]
+    restart: "no"
+
+  api:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/zany_ihub
+      BETTER_AUTH_URL: http://localhost:3000
+      WEB_ORIGIN: http://localhost:5173
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
+      S3_BUCKET: zany-ihub
+      S3_REGION: us-east-1
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    working_dir: /app/services/api
+    command: ["bun", "run", "--watch", "src/index.ts"]
+    volumes:
+      - ./services/api/src:/app/services/api/src
+      - ./packages/db/src:/app/packages/db/src
+
+  web:
+    build: .
+    ports:
+      - "5173:5173"
+    env_file:
+      - .env
+    environment:
+      VITE_API_URL: http://localhost:3000
+    depends_on:
+      - api
+    working_dir: /app/apps/web
+    command:
+      [
+        "bun",
+        "x",
+        "vite",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "5173",
+      ]
+    volumes:
+      - ./apps/web/src:/app/apps/web/src
+      - ./packages/ui/src:/app/packages/ui/src
+
 volumes:
   postgres_data:
+  minio_data:
