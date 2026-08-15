@@ -204,6 +204,27 @@ describe("workspace routes", () => {
     )
   })
 
+  test("returns conflict when the user is already a workspace member", async () => {
+    const workspace = await createWorkspace("Duplicate Invite")
+    await db.insert(schema.workspaceMember).values({
+      id: crypto.randomUUID(),
+      workspaceId: workspace.id,
+      userId: candidate.id,
+      role: "member",
+    })
+
+    const response = await request(
+      `/workspaces/${workspace.id}/members`,
+      {
+        method: "POST",
+        body: JSON.stringify({ email: candidate.email }),
+      },
+      ownerHeaders
+    )
+
+    expect(response.status).toBe(409)
+  })
+
   test("does not allow owners to be added through the member endpoint", async () => {
     const workspace = await createWorkspace("No Co-owners")
 

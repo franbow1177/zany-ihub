@@ -115,6 +115,12 @@ export const workspaceRoutes = new Elysia({ name: "workspace-routes" })
         return { error: "User not found" }
       }
 
+      const existingMembership = await findMembership(params.id, target.id)
+      if (existingMembership) {
+        set.status = 409
+        return { error: "User is already a workspace member" }
+      }
+
       const [created] = await db
         .insert(schema.workspaceMember)
         .values({
