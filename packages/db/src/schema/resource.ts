@@ -1,0 +1,37 @@
+import {
+  type AnyPgColumn,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+} from "drizzle-orm/pg-core";
+import { user } from "./auth";
+import { workspace } from "./workspace";
+
+export const resourceKindEnum = pgEnum("resource_kind", [
+  "folder",
+  "file",
+  "doc",
+  "table",
+]);
+
+export const resource = pgTable("resource", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  parentId: text("parent_id").references(
+    (): AnyPgColumn => resource.id,
+    { onDelete: "restrict" },
+  ),
+  kind: resourceKindEnum("kind").notNull(),
+  name: text("name").notNull(),
+  createdBy: text("created_by")
+    .notNull()
+    .references(() => user.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
