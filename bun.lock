@@ -100,6 +100,7 @@
         "@elysiajs/cors": "^1.4.2",
         "@workspace/db": "workspace:*",
         "better-auth": "^1.6.29",
+        "drizzle-orm": "^0.45.2",
         "elysia": "^1.4.29",
       },
       "devDependencies": {

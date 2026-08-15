@@ -1,6 +1,7 @@
 import { cors } from "@elysiajs/cors"
 import { Elysia } from "elysia"
 import { auth } from "./auth"
+import { workspaceRoutes } from "./routes/workspaces"
 
 export const app = new Elysia()
   .use(
@@ -13,6 +14,7 @@ export const app = new Elysia()
   )
   .get("/health", () => ({ ok: true }))
   .all("/api/auth/*", ({ request }) => auth.handler(request))
+  .use(workspaceRoutes)
 
 if (import.meta.main) {
   app.listen(3000)
