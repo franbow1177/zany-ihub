@@ -19,3 +19,14 @@ To use the components in your app, import them from the `ui` package.
 ```tsx
 import { Button } from "@workspace/ui/components/button";
 ```
+
+## Google OAuth
+
+Configure the Google OAuth client with this redirect URI:
+
+`http://localhost:3000/api/auth/callback/google`
+
+Required environment variables:
+
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
