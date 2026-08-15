@@ -2,12 +2,20 @@
   "name": "zanbase-ihub",
   "version": "0.0.1",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
     "lint": "turbo lint",
     "format": "turbo format",
-    "typecheck": "turbo typecheck"
+    "typecheck": "turbo typecheck",
+    "db:generate": "bun run --filter @workspace/db generate",
+    "db:migrate": "bun run --filter @workspace/db migrate",
+    "db:studio": "bun run --filter @workspace/db studio"
   },
   "devDependencies": {
     "prettier": "^3.8.3",
@@ -15,7 +23,6 @@
     "turbo": "^2.9.18",
     "typescript": "~6"
   },
-  "packageManager": "pnpm@10.33.4",
   "engines": {
     "node": ">=20"
   }
