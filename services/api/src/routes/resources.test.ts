@@ -221,6 +221,54 @@ describe("resource routes", () => {
     })
   })
 
+  test("rejects moving a folder beneath one of its descendants", async () => {
+    const workspace = await createWorkspace("Cycle Prevention")
+    const parent = await createResource(workspace.id, {
+      name: "Parent",
+      kind: "folder",
+    })
+    const child = await createResource(workspace.id, {
+      name: "Child",
+      kind: "folder",
+      parentId: parent.id,
+    })
+    const grandchild = await createResource(workspace.id, {
+      name: "Grandchild",
+      kind: "folder",
+      parentId: child.id,
+    })
+
+    const response = await request(
+      `/resources/${parent.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ parentId: grandchild.id }),
+      },
+      ownerHeaders
+    )
+
+    expect(response.status).toBe(400)
+  })
+
+  test("rejects an empty parent id when moving a resource", async () => {
+    const workspace = await createWorkspace("Empty Parent")
+    const folder = await createResource(workspace.id, {
+      name: "Folder",
+      kind: "folder",
+    })
+
+    const response = await request(
+      `/resources/${folder.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ parentId: "" }),
+      },
+      ownerHeaders
+    )
+
+    expect(response.status).toBe(422)
+  })
+
   test("returns conflict when deleting a folder with children", async () => {
     const workspace = await createWorkspace("Protected Folder")
     const folder = await createResource(workspace.id, {

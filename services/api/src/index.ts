@@ -1,13 +1,14 @@
 import { cors } from "@elysiajs/cors"
 import { Elysia } from "elysia"
 import { auth } from "./auth"
+import { serverEnv } from "./env"
 import { resourceRoutes } from "./routes/resources"
 import { workspaceRoutes } from "./routes/workspaces"
 
 export const app = new Elysia()
   .use(
     cors({
-      origin: process.env.WEB_ORIGIN!,
+      origin: serverEnv.WEB_ORIGIN,
       credentials: true,
       allowedHeaders: ["Content-Type", "Authorization"],
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],

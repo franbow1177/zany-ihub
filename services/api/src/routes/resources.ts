@@ -51,6 +51,24 @@ async function findValidParent(parentId: string, workspaceId: string) {
   }
 }
 
+async function wouldCreateCycle(
+  resourceId: string,
+  parent: NonNullable<Awaited<ReturnType<typeof findResource>>>
+) {
+  const visited = new Set<string>()
+  let current: typeof parent | undefined = parent
+
+  while (current) {
+    if (current.id === resourceId || visited.has(current.id)) return true
+    visited.add(current.id)
+    current = current.parentId
+      ? await findResource(current.parentId)
+      : undefined
+  }
+
+  return false
+}
+
 const resourceKind = t.Union([
   t.Literal("folder"),
   t.Literal("file"),
@@ -149,7 +167,9 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
           body.parentId,
           resource.workspaceId
         )
-        if (!parent || parent.id === resource.id) return invalidParent(set)
+        if (!parent || (await wouldCreateCycle(resource.id, parent))) {
+          return invalidParent(set)
+        }
       }
 
       const changes: {
@@ -172,7 +192,9 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
     {
       body: t.Object({
         name: t.Optional(t.String({ minLength: 1 })),
-        parentId: t.Optional(t.Union([t.String(), t.Null()])),
+        parentId: t.Optional(
+          t.Union([t.String({ minLength: 1 }), t.Null()])
+        ),
       }),
     }
   )
