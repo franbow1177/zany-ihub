@@ -1,32 +1,45 @@
-# shadcn/ui monorepo template
+# Zany iHub
 
-This is a Vite monorepo template with shadcn/ui.
+## Local development
 
-## Adding components
+Install the workspace dependencies with Bun:
 
-To add components to your app, run the following command at the root of your `web` app:
-
-```bash
-pnpm dlx shadcn@latest add button -c apps/web
+```sh
+bun install
 ```
 
-This will place the ui components in the `packages/ui/src/components` directory.
+Copy the example environment file and fill in a long random auth secret and
+Google OAuth credentials:
 
-## Using components
+```sh
+cp .env.example .env
+```
 
-To use the components in your app, import them from the `ui` package.
+The default local URLs are:
 
-```tsx
-import { Button } from "@workspace/ui/components/button";
+- Web: `http://localhost:5173`
+- API: `http://localhost:3000`
+- Postgres: `postgres://postgres:postgres@localhost:5432/zany_ihub`
+
+Start Postgres, apply migrations, and run the API and web app:
+
+```sh
+docker compose up -d
+bun run db:migrate
+bun run dev
 ```
 
 ## Google OAuth
 
-Configure the Google OAuth client with this redirect URI:
+Create a Google OAuth web client and configure this authorized redirect URI:
 
 `http://localhost:3000/api/auth/callback/google`
 
-Required environment variables:
+Set these values in `.env`:
 
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
+
+`BETTER_AUTH_URL`, `WEB_ORIGIN`, and `VITE_API_URL` must match the API and web
+origins used by your local environment. Google sign-in cannot complete until
+valid Google OAuth credentials are configured.
