@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState, type DragEvent as ReactDragEvent } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { useHotkeys } from "react-hotkeys-hook"
 import {
@@ -21,6 +21,7 @@ import {
   FolderOpenIcon,
   FolderRootIcon,
   MoreHorizontalIcon,
+  Upload01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useZero } from "@rocicorp/zero/react"
@@ -44,7 +45,13 @@ import {
 import { cn } from "@workspace/ui/lib/utils"
 
 import { PageHeader } from "@/components/page-header"
-import type { Resource, ResourceKind, WorkspaceMember } from "@/lib/api"
+import {
+  apiFetch,
+  type Resource,
+  type ResourceFileMeta,
+  type ResourceKind,
+  type WorkspaceMember,
+} from "@/lib/api"
 import { RESOURCE_KIND_CONFIG, RESOURCE_KINDS } from "@/lib/resource-kind"
 import { ResourceDropdown } from "./resource-dropdown"
 import { ResourceFormSheet } from "./resource-form-sheet"
@@ -53,6 +60,14 @@ import { ResourcePageHeader } from "./resource-page-header"
 
 const ROOT = "resource-root"
 const folderDrop = (id: string) => `resource-folder:${id}`
+
+function hasDraggedFiles(event: ReactDragEvent<HTMLElement>) {
+  return Array.from(event.dataTransfer.types).includes("Files")
+}
+
+function fileResourceName(file: File) {
+  return (file.name.trim() || "Untitled file").slice(0, 240)
+}
 
 function idsBelow(resourceId: string, resources: Resource[]) {
   const ids = new Set([resourceId])
@@ -228,6 +243,12 @@ export function ResourcesView({
   const [createKind, setCreateKind] = useState<ResourceKind>("folder")
   const [createSession, setCreateSession] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [fileDragActive, setFileDragActive] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{
+    completed: number
+    total: number
+  } | null>(null)
+  const uploadingFiles = useRef(false)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 7 } })
   )
@@ -241,6 +262,7 @@ export function ResourcesView({
     (event) => {
       if (!/^[1-9]$/.test(event.key)) return
       if (document.querySelector('[role="dialog"]')) return
+      if (document.querySelector("[data-workspaces-menu]")) return
       const resource = visible[Number(event.key) - 1]
       if (!resource) return
       event.preventDefault()
@@ -284,6 +306,104 @@ export function ResourcesView({
           : "Could not move resource"
       )
     }
+  }
+
+  async function createFileResource(file: File) {
+    if (file.size === 0) throw new Error("The file is empty")
+
+    const id = crypto.randomUUID()
+    const result = zero.mutate(
+      mutators.resources.create({
+        id,
+        workspaceId,
+        parentId,
+        kind: "file",
+        name: fileResourceName(file),
+        description: null,
+        icon: null,
+        bookmark: null,
+        channelParticipants: null,
+        now: Date.now(),
+      })
+    )
+    const serverResult = await result.server
+    if (serverResult.type === "error") {
+      throw new Error(serverResult.error.message)
+    }
+
+    const form = new FormData()
+    form.append("file", file)
+    await apiFetch<ResourceFileMeta>(`/resources/${id}/upload`, {
+      method: "POST",
+      body: form,
+    })
+  }
+
+  async function uploadDroppedFiles(files: File[]) {
+    if (files.length === 0) return
+    if (uploadingFiles.current) {
+      setError("Wait for the current file upload to finish, then try again.")
+      return
+    }
+
+    uploadingFiles.current = true
+    setError(null)
+    setUploadProgress({ completed: 0, total: files.length })
+    const failures: string[] = []
+
+    for (const file of files) {
+      try {
+        await createFileResource(file)
+      } catch (uploadError) {
+        const message =
+          uploadError instanceof Error ? uploadError.message : "Upload failed"
+        failures.push(`${file.name}: ${message}`)
+      } finally {
+        setUploadProgress((current) =>
+          current
+            ? { ...current, completed: current.completed + 1 }
+            : current
+        )
+      }
+    }
+
+    uploadingFiles.current = false
+    setUploadProgress(null)
+    if (failures.length > 0) {
+      const details = failures.slice(0, 3).join("; ")
+      const remaining = failures.length - 3
+      setError(
+        `Could not add ${failures.length} ${failures.length === 1 ? "file" : "files"}: ${details}${remaining > 0 ? `; and ${remaining} more` : ""}`
+      )
+    }
+  }
+
+  function fileDragEnter(event: ReactDragEvent<HTMLElement>) {
+    if (!hasDraggedFiles(event)) return
+    event.preventDefault()
+    setFileDragActive(true)
+  }
+
+  function fileDragOver(event: ReactDragEvent<HTMLElement>) {
+    if (!hasDraggedFiles(event)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = "copy"
+  }
+
+  function fileDragLeave(event: ReactDragEvent<HTMLElement>) {
+    if (!hasDraggedFiles(event)) return
+    const nextTarget = event.relatedTarget
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+      return
+    }
+    setFileDragActive(false)
+  }
+
+  function fileDrop(event: ReactDragEvent<HTMLElement>) {
+    if (!hasDraggedFiles(event)) return
+    event.preventDefault()
+    setFileDragActive(false)
+    void uploadDroppedFiles(Array.from(event.dataTransfer.files))
   }
 
   function dragEnd(event: DragEndEvent) {
@@ -342,7 +462,28 @@ export function ResourcesView({
       onDragCancel={() => setActiveId(null)}
       onDragEnd={dragEnd}
     >
-      <section className="space-y-6" aria-labelledby="resources-heading">
+      <section
+        className="relative space-y-6"
+        aria-labelledby="resources-heading"
+        onDragEnter={fileDragEnter}
+        onDragOver={fileDragOver}
+        onDragLeave={fileDragLeave}
+        onDrop={fileDrop}
+      >
+        {fileDragActive && (
+          <div className="pointer-events-none absolute inset-0 z-40 grid min-h-64 place-items-center rounded-xl border-2 border-dashed border-primary bg-background/90 p-6 text-center shadow-lg backdrop-blur-sm">
+            <div className="space-y-2">
+              <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <HugeiconsIcon icon={Upload01Icon} strokeWidth={2} />
+              </span>
+              <p className="font-medium">Drop files to add them</p>
+              <p className="text-sm text-muted-foreground">
+                Each file will become a resource in this location.
+              </p>
+            </div>
+          </div>
+        )}
+
         {headerResource ? (
           <ResourcePageHeader
             resource={headerResource}
@@ -368,6 +509,24 @@ export function ResourcesView({
           >
             {error}
           </p>
+        )}
+
+        {uploadProgress && (
+          <div
+            className="flex items-center gap-3 rounded-lg border bg-muted/40 px-3 py-2 text-sm"
+            role="status"
+            aria-live="polite"
+          >
+            <HugeiconsIcon
+              icon={Upload01Icon}
+              strokeWidth={2}
+              className="size-4 animate-pulse text-primary"
+            />
+            <span className="font-medium">Adding files…</span>
+            <span className="ml-auto text-muted-foreground">
+              {uploadProgress.completed} of {uploadProgress.total}
+            </span>
+          </div>
         )}
 
         {visible.length === 0 ? (

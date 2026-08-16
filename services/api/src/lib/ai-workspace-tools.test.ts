@@ -11,6 +11,10 @@ import {
   getResource,
   listMembers,
   listResources,
+  updateDocument,
+  updateDocumentToolInput,
+  updateTable,
+  updateTableToolInput,
 } from "./ai-workspace-tools"
 
 type TestUser = ReturnType<TestHelpers["createUser"]>
@@ -141,5 +145,108 @@ describe("AI workspace tools", () => {
         ),
     })
     expect(audit?.actorId).toBe(owner.id)
+  })
+
+  test("appends document content and adds table columns and rows", async () => {
+    const context = {
+      workspaceId,
+      actorId: owner.id,
+      requestId: crypto.randomUUID(),
+    }
+    const document = await createResource(
+      context,
+      createResourceToolInput.parse({
+        kind: "doc",
+        name: "AI notes",
+        document: { content: "<p>Existing note</p>" },
+      })
+    )
+    const documentUpdate = await updateDocument(
+      context,
+      updateDocumentToolInput.parse({
+        resourceId: document.resource.id,
+        content: "<p>Appended by the assistant</p>",
+      })
+    )
+
+    expect(documentUpdate).toMatchObject({
+      success: true,
+      resource: { id: document.resource.id, name: "AI notes", kind: "doc" },
+      mode: "append",
+    })
+    const documentDetail = await getResource(workspaceId, {
+      resourceId: document.resource.id,
+      rowLimit: 100,
+    })
+    expect(documentDetail.content).toMatchObject({
+      html: "<p>Existing note</p><p>Appended by the assistant</p>",
+      truncated: false,
+    })
+
+    const table = await createResource(
+      context,
+      createResourceToolInput.parse({
+        kind: "table",
+        name: "AI tracker",
+        table: {
+          columns: [{ id: "task", name: "Task", kind: "text" }],
+          rows: [{ id: "existing", values: { task: "Existing task" } }],
+        },
+      })
+    )
+    const tableUpdate = await updateTable(
+      context,
+      updateTableToolInput.parse({
+        resourceId: table.resource.id,
+        columns: [
+          {
+            id: "priority",
+            name: "Priority",
+            kind: "select",
+            options: ["Low", "High"],
+          },
+        ],
+        rows: [{ values: { task: "New task", priority: "High" } }],
+      })
+    )
+
+    expect(tableUpdate).toMatchObject({
+      success: true,
+      resource: { id: table.resource.id, name: "AI tracker", kind: "table" },
+      addedColumnCount: 1,
+      addedRowCount: 1,
+      columnCount: 2,
+      rowCount: 2,
+    })
+    const tableDetail = await getResource(workspaceId, {
+      resourceId: table.resource.id,
+      rowLimit: 100,
+    })
+    expect(tableDetail.content).toMatchObject({
+      rowCount: 2,
+      rows: [
+        { id: "existing", task: "Existing task", priority: "Low" },
+        expect.objectContaining({ task: "New task", priority: "High" }),
+      ],
+    })
+
+    const documentAudit = await db.query.auditEvent.findFirst({
+      where: (row, { and, eq }) =>
+        and(
+          eq(row.workspaceId, workspaceId),
+          eq(row.targetId, document.resource.id),
+          eq(row.action, "document.content_updated")
+        ),
+    })
+    const tableAudit = await db.query.auditEvent.findFirst({
+      where: (row, { and, eq }) =>
+        and(
+          eq(row.workspaceId, workspaceId),
+          eq(row.targetId, table.resource.id),
+          eq(row.action, "table.data_updated")
+        ),
+    })
+    expect(documentAudit?.actorId).toBe(owner.id)
+    expect(tableAudit?.actorId).toBe(owner.id)
   })
 })

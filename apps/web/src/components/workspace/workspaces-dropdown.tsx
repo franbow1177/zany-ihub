@@ -1,10 +1,13 @@
+import { useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
+import { useHotkeys } from "react-hotkeys-hook"
 import {
   ArrowDown01Icon,
   Home01Icon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { Kbd } from "@workspace/ui/components/kbd"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,6 +41,37 @@ export function WorkspacesDropdown({
   isLoading: boolean
 }) {
   const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+
+  useHotkeys(
+    "ctrl+w",
+    (event) => {
+      if (document.querySelector('[role="dialog"]')) return
+      event.preventDefault()
+      setOpen((current) => !current)
+    },
+    {
+      preventDefault: true,
+    },
+    []
+  )
+
+  useHotkeys(
+    "ctrl+1,ctrl+2,ctrl+3,ctrl+4,ctrl+5,ctrl+6,ctrl+7,ctrl+8,ctrl+9",
+    (event) => {
+      if (!/^[1-9]$/.test(event.key)) return
+      const item = workspaces[Number(event.key) - 1]
+      if (!item) return
+      event.preventDefault()
+      setOpen(false)
+      navigate(`/workspace/${item.id}`)
+    },
+    {
+      enabled: open && workspaces.length > 0,
+      preventDefault: true,
+    },
+    [navigate, open, workspaces]
+  )
 
   if (isLoading && !workspace) {
     return (
@@ -51,7 +85,7 @@ export function WorkspacesDropdown({
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <DropdownMenu>
+        <DropdownMenu open={open} onOpenChange={setOpen}>
           <DropdownMenuTrigger
             render={
               <SidebarMenuButton className="data-popup-open:bg-sidebar-accent" />
@@ -67,10 +101,15 @@ export function WorkspacesDropdown({
               className="ml-auto size-4"
             />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" side="bottom" className="min-w-64">
+          <DropdownMenuContent
+            align="start"
+            side="bottom"
+            className="min-w-64"
+            data-workspaces-menu=""
+          >
             <DropdownMenuGroup>
               <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
-              {workspaces.map((item) => (
+              {workspaces.map((item, index) => (
                 <DropdownMenuItem
                   key={item.id}
                   onClick={() => navigate(`/workspace/${item.id}`)}
@@ -79,6 +118,11 @@ export function WorkspacesDropdown({
                     {workspaceInitial(item.name)}
                   </span>
                   <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                  {index < 9 && (
+                    <Kbd className="text-[10px] text-muted-foreground">
+                      ⌃{index + 1}
+                    </Kbd>
+                  )}
                   {item.id === workspace?.id && (
                     <HugeiconsIcon icon={Tick02Icon} strokeWidth={2} />
                   )}

@@ -10,14 +10,15 @@ import { TooltipProvider } from "@workspace/ui/components/tooltip"
 import { cn } from "@workspace/ui/lib/utils"
 
 import type { Resource, Workspace, WorkspaceMember } from "@/lib/api"
+import { authClient } from "@/lib/auth-client"
 import { ResourceFormSheet } from "../resource/resource-form-sheet"
 import {
   ResourceDiscussionButtonGroup,
   ResourceDiscussionPanel,
   type DiscussionMode,
 } from "../resource/resource-discussion"
+import { InviteMemberDialog, WorkspaceMembers } from "./workspace-members"
 import { WorkspaceBreadcrumb } from "./workspace-breadcrumb"
-import { WorkspaceMembers } from "./workspace-members"
 import { WorkspaceSearch } from "./workspace-search"
 import { WorkspaceSidebar } from "./workspace-sidebar"
 
@@ -55,6 +56,8 @@ export function WorkspaceShell({
   const [aiChatId, setAiChatId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [createSession, setCreateSession] = useState(0)
+  const [inviteOpen, setInviteOpen] = useState(false)
+  const { data: session } = authClient.useSession()
 
   const activeResource = resources.find(
     (resource) => resource.id === activeResourceId
@@ -63,6 +66,9 @@ export function WorkspaceShell({
     activeResource?.kind === "folder"
       ? activeResource.id
       : (activeResource?.parentId ?? null)
+  const canInvite = members.some(
+    (member) => member.userId === session?.user.id && member.role === "owner"
+  )
 
   useHotkeys(
     "ctrl+0",
@@ -93,6 +99,21 @@ export function WorkspaceShell({
       preventDefault: true,
     },
     [createOpen, workspace]
+  )
+
+  useHotkeys(
+    "ctrl+i",
+    (event) => {
+      if (!workspace || !canInvite) return
+      if (document.querySelector('[role="dialog"]')) return
+      event.preventDefault()
+      setInviteOpen(true)
+    },
+    {
+      enabled: Boolean(workspace) && canInvite && !inviteOpen,
+      preventDefault: true,
+    },
+    [canInvite, inviteOpen, workspace]
   )
 
   return (
@@ -178,6 +199,7 @@ export function WorkspaceShell({
                     workspaceId={workspace.id}
                     mode={discussionMode}
                     aiChatId={aiChatId}
+                    onAiChatIdChange={setAiChatId}
                     onClose={() => setDiscussionOpen(false)}
                   />
                 </aside>
@@ -198,6 +220,14 @@ export function WorkspaceShell({
             onCreated={(resource) =>
               navigate(`/workspace/${workspace.id}/resource/${resource.id}`)
             }
+          />
+        )}
+        {workspace && canInvite && (
+          <InviteMemberDialog
+            workspaceId={workspace.id}
+            open={inviteOpen}
+            onOpenChange={setInviteOpen}
+            trigger={null}
           />
         )}
       </SidebarProvider>

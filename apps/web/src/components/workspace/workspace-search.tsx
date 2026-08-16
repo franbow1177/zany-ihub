@@ -254,6 +254,7 @@ export function WorkspaceSearch({
     "ctrl+1,ctrl+2,ctrl+3,ctrl+4,ctrl+5,ctrl+6,ctrl+7,ctrl+8,ctrl+9",
     (event) => {
       if (!/^[1-9]$/.test(event.key)) return
+      if (document.querySelector("[data-workspaces-menu]")) return
       event.preventDefault()
       activateHit(filteredHits[Number(event.key) - 1])
     },

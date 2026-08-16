@@ -23,6 +23,7 @@ import { ChatConversation } from "./resource-content-chat"
 import { ResourceContentAiChat } from "./resource-content-ai-chat"
 import { ResourceFormSheet } from "./resource-form-sheet"
 import { ResourceKindIcon } from "./resource-kind-icon"
+import { ResourcePicker } from "./resource-picker"
 
 export type DiscussionMode = "threads" | "ai"
 
@@ -223,10 +224,12 @@ function DiscussionAiPanel({
   aiChatId,
   resources,
   members,
+  onAiChatIdChange,
 }: {
   aiChatId: string
   resources: Resource[]
   members: WorkspaceMember[]
+  onAiChatIdChange: (aiChatId: string) => void
 }) {
   const aiResource = useMemo(
     () => resources.find((item) => item.id === aiChatId),
@@ -262,12 +265,30 @@ function DiscussionAiPanel({
   }
 
   return (
-    <ResourceContentAiChat
-      resource={resource}
-      resources={resources}
-      members={members}
-      compact
-    />
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      <div className="shrink-0">
+        <ResourcePicker
+          resources={resources}
+          value={aiChatId}
+          onValueChange={(next) => {
+            if (next) onAiChatIdChange(next)
+          }}
+          allowedKinds={["ai-chat"]}
+          placeholder="Choose AI chat"
+          searchPlaceholder="Search AI chats…"
+          groupHeading="AI chats"
+          size="sm"
+        />
+      </div>
+      <div className="min-h-0 flex-1">
+        <ResourceContentAiChat
+          resource={resource}
+          resources={resources}
+          members={members}
+          compact
+        />
+      </div>
+    </div>
   )
 }
 
@@ -278,6 +299,7 @@ export function ResourceDiscussionPanel({
   workspaceId,
   mode = "threads",
   aiChatId = null,
+  onAiChatIdChange,
 }: {
   resource?: Resource
   resources: Resource[]
@@ -285,6 +307,7 @@ export function ResourceDiscussionPanel({
   workspaceId: string
   mode?: DiscussionMode
   aiChatId?: string | null
+  onAiChatIdChange?: (aiChatId: string) => void
   onClose?: () => void
 }) {
   const zero = useZero()
@@ -339,11 +362,12 @@ export function ResourceDiscussionPanel({
   if (mode === "ai") {
     return (
       <div className="flex h-full min-h-0 flex-col bg-background p-3">
-        {aiChatId ? (
+        {aiChatId && onAiChatIdChange ? (
           <DiscussionAiPanel
             aiChatId={aiChatId}
             resources={resources}
             members={members}
+            onAiChatIdChange={onAiChatIdChange}
           />
         ) : (
           <div className="grid h-full min-h-64 place-items-center text-sm text-muted-foreground">

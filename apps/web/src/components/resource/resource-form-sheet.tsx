@@ -447,6 +447,7 @@ export function ResourceFormSheet({
     "ctrl+1,ctrl+2,ctrl+3,ctrl+4,ctrl+5,ctrl+6,ctrl+7,ctrl+8,ctrl+9",
     (event) => {
       if (!/^[1-9]$/.test(event.key)) return
+      if (document.querySelector("[data-workspaces-menu]")) return
       const fieldId = shortcutFields[Number(event.key) - 1]
       if (!fieldId) return
       const target = document.getElementById(fieldId)
@@ -817,6 +818,7 @@ export function ResourceFormSheet({
                         excludeIds={unavailableFolderIds}
                         placeholder="Choose a location"
                         searchPlaceholder="Search folders…"
+                        groupHeading="Locations"
                       />
                     </div>
                   </Field>

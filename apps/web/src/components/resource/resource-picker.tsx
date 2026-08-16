@@ -18,9 +18,17 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@workspace/ui/components/popover"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@workspace/ui/components/select"
+import { cn } from "@workspace/ui/lib/utils"
 
 import type { Resource, ResourceKind } from "@/lib/api"
-import { RESOURCE_KIND_CONFIG } from "@/lib/resource-kind"
+import { RESOURCE_KIND_CONFIG, RESOURCE_KINDS } from "@/lib/resource-kind"
 import { ResourceKindIcon } from "./resource-kind-icon"
 
 type ResourceOption = {
@@ -28,6 +36,8 @@ type ResourceOption = {
   path: string
   parentPath: string
 }
+
+type KindFilter = ResourceKind | "all"
 
 function buildResourcePath(
   resource: Resource,
@@ -53,39 +63,58 @@ export function ResourcePicker({
   value,
   onValueChange,
   allowedKinds,
+  showKindFilter,
   includeWorkspaceRoot = false,
   excludeIds,
   placeholder = "Choose a resource",
   searchPlaceholder = "Search resources…",
+  groupHeading = "Resources",
   disabled = false,
   id,
+  size = "default",
+  className,
 }: {
   resources: Resource[]
   value: string | null
   onValueChange: (value: string | null) => void
   allowedKinds?: ResourceKind[]
+  showKindFilter?: boolean
   includeWorkspaceRoot?: boolean
   excludeIds?: ReadonlySet<string>
   placeholder?: string
   searchPlaceholder?: string
+  groupHeading?: string
   disabled?: boolean
   id?: string
+  size?: "default" | "sm"
+  className?: string
 }) {
   const [open, setOpen] = useState(false)
+  const kindChoices = allowedKinds?.length ? allowedKinds : RESOURCE_KINDS
+  const canFilterKinds = kindChoices.length > 1
+  const kindFilterEnabled = showKindFilter ?? canFilterKinds
+  const [kindFilter, setKindFilter] = useState<KindFilter>(
+    canFilterKinds ? "all" : kindChoices[0]!
+  )
+
   const resourcesById = useMemo(
     () => new Map(resources.map((resource) => [resource.id, resource])),
     [resources]
   )
   const allowedKindSet = useMemo(
-    () => (allowedKinds ? new Set<ResourceKind>(allowedKinds) : null),
-    [allowedKinds]
+    () => new Set<ResourceKind>(kindChoices),
+    [kindChoices]
   )
+  const activeKind =
+    kindFilterEnabled && kindFilter !== "all" ? kindFilter : null
+
   const options = useMemo<ResourceOption[]>(
     () =>
       resources
         .filter(
           (resource) =>
-            (!allowedKindSet || allowedKindSet.has(resource.kind)) &&
+            allowedKindSet.has(resource.kind) &&
+            (!activeKind || resource.kind === activeKind) &&
             !excludeIds?.has(resource.id)
         )
         .map((resource) => {
@@ -100,7 +129,7 @@ export function ResourcePicker({
           }
         })
         .sort((a, b) => a.path.localeCompare(b.path)),
-    [allowedKindSet, excludeIds, resources, resourcesById]
+    [activeKind, allowedKindSet, excludeIds, resources, resourcesById]
   )
   const selected = value ? resourcesById.get(value) : null
   const selectedPath = selected
@@ -123,7 +152,12 @@ export function ResourcePicker({
             id={id}
             type="button"
             variant="outline"
-            className="h-10 w-full justify-start px-3 font-normal"
+            size={size === "sm" ? "sm" : "default"}
+            className={cn(
+              "w-full justify-start font-normal",
+              size === "default" && "h-10 px-3",
+              className
+            )}
             disabled={disabled}
             role="combobox"
             aria-expanded={open}
@@ -152,7 +186,7 @@ export function ResourcePicker({
                 ? "Workspace root"
                 : placeholder}
           </span>
-          {selectedPath && (
+          {selectedPath && size !== "sm" && (
             <span className="block truncate text-xs text-muted-foreground">
               {selectedPath}
             </span>
@@ -169,11 +203,34 @@ export function ResourcePicker({
         align="start"
         className="w-96 max-w-[calc(100vw-2rem)] gap-0 p-0"
       >
+        {kindFilterEnabled && canFilterKinds && (
+          <div className="border-b p-2">
+            <Select
+              value={kindFilter}
+              onValueChange={(next) => {
+                if (next == null) return
+                setKindFilter(next as KindFilter)
+              }}
+            >
+              <SelectTrigger size="sm" className="w-full" aria-label="Filter by kind">
+                <SelectValue placeholder="All kinds" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All kinds</SelectItem>
+                {kindChoices.map((kind) => (
+                  <SelectItem key={kind} value={kind}>
+                    {RESOURCE_KIND_CONFIG[kind].label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <Command>
           <CommandInput autoFocus placeholder={searchPlaceholder} />
           <CommandList>
             <CommandEmpty>No matching resources.</CommandEmpty>
-            <CommandGroup heading="Locations">
+            <CommandGroup heading={groupHeading}>
               {includeWorkspaceRoot && (
                 <CommandItem
                   value="workspace-root"

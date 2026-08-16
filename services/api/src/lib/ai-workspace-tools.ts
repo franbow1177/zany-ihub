@@ -56,6 +56,42 @@ const tableRowInput = z.object({
   values: z.record(z.string().min(1), tableCell),
 })
 
+export const updateDocumentToolInput = z.object({
+  resourceId: z.string().min(1),
+  content: z
+    .string()
+    .min(1)
+    .max(2_000_000)
+    .describe("TipTap-compatible HTML content or fragment"),
+  mode: z
+    .enum(["append", "replace"])
+    .default("append")
+    .describe(
+      "Append preserves the existing document; replace overwrites it and should only be used when explicitly requested"
+    ),
+})
+
+export const updateTableToolInput = z
+  .object({
+    resourceId: z.string().min(1),
+    columns: z
+      .array(tableColumn)
+      .max(200)
+      .optional()
+      .describe("New columns to append to the existing table schema"),
+    rows: z
+      .array(tableRowInput)
+      .max(10_000)
+      .optional()
+      .describe(
+        "New rows to append; values must be keyed by existing or newly added column IDs"
+      ),
+  })
+  .refine(
+    (input) => (input.columns?.length ?? 0) + (input.rows?.length ?? 0) > 0,
+    { message: "Provide at least one column or row to add" }
+  )
+
 const commonCreateFields = {
   name: z.string().trim().min(1).max(500).describe("Resource name"),
   parentId: z
@@ -181,7 +217,12 @@ export const AI_WORKSPACE_TOOL_INSTRUCTIONS = `You have tools for the current wo
 - Use getResource when the user asks about resource-specific content.
 - Use listMembers to resolve people to user IDs.
 - Call createResource only when the user explicitly asks to create something. Before creating a nested resource, resolve and use the parent folder ID. Supply kind-specific initial content when the user provides it.
-- Never claim a write succeeded unless the createResource tool returned success.`
+- Call updateDocument or updateTable only when the user explicitly asks to change an existing resource. Use getResource first so you have its current content and exact IDs.
+- Prefer append mode for adding document content. Use replace mode only when the user explicitly asks to replace or rewrite the whole document.
+- For table writes, use exact column IDs from getResource. updateTable appends columns and rows without removing existing data.
+- In user-facing responses, reference a resource with the exact TipTap mention shortcode [@ id="resource:RESOURCE_ID" label="RESOURCE_NAME"]. Write it directly, without backticks. Do not expose raw internal IDs unless the user asks for them.
+- After a successful write, respond concisely: mention what changed and reference the affected resource once. Do not include a Details block, IDs, timestamps, created/updated dates, or other tool-result metadata unless the user explicitly asks for it.
+- Never claim a write succeeded unless the corresponding write tool returned success.`
 
 export type WorkspaceToolContext = {
   workspaceId: string
@@ -206,6 +247,10 @@ function serializeResource(row: typeof schema.resource.$inferSelect) {
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
   }
+}
+
+function serializeResourceReference(row: typeof schema.resource.$inferSelect) {
+  return { id: row.id, name: row.name, kind: row.kind }
 }
 
 async function requireFolder(workspaceId: string, parentId?: string | null) {
@@ -268,6 +313,14 @@ function buildTableData(
       ...(row.values as Record<string, ResourceTableCell>),
     })),
   }
+}
+
+function defaultTableCellValue(column: ResourceTableColumn): ResourceTableCell {
+  if (column.kind === "checkbox") return false
+  if (column.kind === "number") return null
+  if (column.kind === "select") return column.options?.[0] ?? ""
+  if (column.kind === "multi-select") return []
+  return ""
 }
 
 export async function listResources(
@@ -637,7 +690,7 @@ export async function createResource(
 
   return {
     success: true,
-    resource: serializeResource(created),
+    resource: serializeResourceReference(created),
     initialized: {
       document: input.kind === "doc" && Boolean(input.document),
       table:
@@ -653,6 +706,183 @@ export async function createResource(
           : undefined,
     },
   }
+}
+
+export async function updateDocument(
+  context: WorkspaceToolContext,
+  input: z.infer<typeof updateDocumentToolInput>
+) {
+  return db.transaction(async (tx) => {
+    const [resource] = await tx
+      .select()
+      .from(schema.resource)
+      .where(
+        and(
+          eq(schema.resource.id, input.resourceId),
+          eq(schema.resource.workspaceId, context.workspaceId)
+        )
+      )
+      .limit(1)
+      .for("update")
+    if (!resource)
+      throw new Error("Resource not found in the current workspace")
+    if (resource.kind !== "doc") throw new Error("Resource is not a document")
+
+    const [document] = await tx
+      .select({ content: schema.resourceDocument.content })
+      .from(schema.resourceDocument)
+      .where(eq(schema.resourceDocument.id, resource.id))
+      .limit(1)
+      .for("update")
+    if (!document) throw new Error("Document content not found")
+
+    const content =
+      input.mode === "replace"
+        ? input.content
+        : `${document.content}${input.content}`
+    if (content.length > 2_000_000) {
+      throw new Error("Updated document exceeds the 2,000,000 character limit")
+    }
+
+    const now = new Date()
+    await tx
+      .update(schema.resourceDocument)
+      .set({ content, updatedAt: now })
+      .where(eq(schema.resourceDocument.id, resource.id))
+    await tx
+      .update(schema.resource)
+      .set({ updatedAt: now })
+      .where(eq(schema.resource.id, resource.id))
+    await recordAuditEvent(tx, {
+      workspaceId: context.workspaceId,
+      actorId: context.actorId,
+      action: "document.content_updated",
+      targetType: "resource",
+      targetId: resource.id,
+      targetLabel: resource.name,
+      metadata: {
+        mode: input.mode,
+        previousLength: document.content.length,
+        contentLength: content.length,
+      },
+      requestId: context.requestId,
+    })
+
+    return {
+      success: true,
+      resource: serializeResourceReference(resource),
+      mode: input.mode,
+      contentLength: content.length,
+    }
+  })
+}
+
+export async function updateTable(
+  context: WorkspaceToolContext,
+  input: z.infer<typeof updateTableToolInput>
+) {
+  return db.transaction(async (tx) => {
+    const [resource] = await tx
+      .select()
+      .from(schema.resource)
+      .where(
+        and(
+          eq(schema.resource.id, input.resourceId),
+          eq(schema.resource.workspaceId, context.workspaceId)
+        )
+      )
+      .limit(1)
+      .for("update")
+    if (!resource)
+      throw new Error("Resource not found in the current workspace")
+    if (resource.kind !== "table") throw new Error("Resource is not a table")
+
+    const [storedTable] = await tx
+      .select({ data: schema.resourceTable.data })
+      .from(schema.resourceTable)
+      .where(eq(schema.resourceTable.id, resource.id))
+      .limit(1)
+      .for("update")
+    if (!storedTable) throw new Error("Table content not found")
+
+    const addedColumns = (input.columns ?? []) as ResourceTableColumn[]
+    const columns = [...storedTable.data.columns, ...addedColumns]
+    if (columns.length > 200) {
+      throw new Error("Updated table exceeds the 200 column limit")
+    }
+    const columnIds = new Set(columns.map((column) => column.id))
+    if (columnIds.size !== columns.length) {
+      throw new Error("Table column IDs must be unique")
+    }
+
+    const existingRows = storedTable.data.rows.map((row) => {
+      const nextRow = { ...row }
+      for (const column of addedColumns) {
+        nextRow[column.id] = defaultTableCellValue(column)
+      }
+      return nextRow
+    })
+    const addedRows = (input.rows ?? []).map((row) => {
+      const unknownColumn = Object.keys(row.values).find(
+        (columnId) => !columnIds.has(columnId)
+      )
+      if (unknownColumn) {
+        throw new Error(`Table row references unknown column: ${unknownColumn}`)
+      }
+      const values = Object.fromEntries(
+        columns.map((column) => [
+          column.id,
+          Object.hasOwn(row.values, column.id)
+            ? row.values[column.id]
+            : defaultTableCellValue(column),
+        ])
+      ) as Record<string, ResourceTableCell>
+      return { id: row.id ?? newId(), ...values }
+    })
+    const rows = [...existingRows, ...addedRows]
+    if (rows.length > 10_000) {
+      throw new Error("Updated table exceeds the 10,000 row limit")
+    }
+    const rowIds = new Set(rows.map((row) => row.id))
+    if (rowIds.size !== rows.length) {
+      throw new Error("Table row IDs must be unique")
+    }
+
+    const data: ResourceTableData = { version: 1, columns, rows }
+    const now = new Date()
+    await tx
+      .update(schema.resourceTable)
+      .set({ data, updatedAt: now })
+      .where(eq(schema.resourceTable.id, resource.id))
+    await tx
+      .update(schema.resource)
+      .set({ updatedAt: now })
+      .where(eq(schema.resource.id, resource.id))
+    await recordAuditEvent(tx, {
+      workspaceId: context.workspaceId,
+      actorId: context.actorId,
+      action: "table.data_updated",
+      targetType: "resource",
+      targetId: resource.id,
+      targetLabel: resource.name,
+      metadata: {
+        addedColumnCount: addedColumns.length,
+        addedRowCount: addedRows.length,
+        columnCount: columns.length,
+        rowCount: rows.length,
+      },
+      requestId: context.requestId,
+    })
+
+    return {
+      success: true,
+      resource: serializeResourceReference(resource),
+      addedColumnCount: addedColumns.length,
+      addedRowCount: addedRows.length,
+      columnCount: columns.length,
+      rowCount: rows.length,
+    }
+  })
 }
 
 export function createWorkspaceTools(context: WorkspaceToolContext) {
@@ -680,6 +910,18 @@ export function createWorkspaceTools(context: WorkspaceToolContext) {
         "Create a typed resource in the current workspace with its kind-specific initial data. Use only after the user explicitly asks to create it. Supports folders, files, docs, tables, whiteboards, projects with tasks, bookmarks, agents, AI chats, and member channels.",
       inputSchema: createResourceToolInput,
       execute: (input) => createResource(context, input),
+    }),
+    updateDocument: tool({
+      description:
+        "Append TipTap-compatible HTML to an existing document, or replace the whole document when explicitly requested. Read the document first and only call when the user asks for a write.",
+      inputSchema: updateDocumentToolInput,
+      execute: (input) => updateDocument(context, input),
+    }),
+    updateTable: tool({
+      description:
+        "Append columns and/or rows to an existing table without removing current data. Read the table first to get exact column IDs and only call when the user asks for a write.",
+      inputSchema: updateTableToolInput,
+      execute: (input) => updateTable(context, input),
     }),
   }
 }

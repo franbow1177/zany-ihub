@@ -64,8 +64,18 @@ function MemberAvatar({ member }: { member: WorkspaceMember }) {
   )
 }
 
-export function InviteMemberDialog({ workspaceId }: { workspaceId: string }) {
-  const [open, setOpen] = useState(false)
+export function InviteMemberDialog({
+  workspaceId,
+  open: controlledOpen,
+  onOpenChange,
+  trigger,
+}: {
+  workspaceId: string
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  trigger?: React.ReactElement | null
+}) {
+  const [internalOpen, setInternalOpen] = useState(false)
   const [email, setEmail] = useState("")
   const [invitations, setInvitations] = useState<WorkspaceInvitation[]>([])
   const [inviteUrl, setInviteUrl] = useState<string | null>(null)
@@ -73,6 +83,7 @@ export function InviteMemberDialog({ workspaceId }: { workspaceId: string }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const open = controlledOpen ?? internalOpen
 
   async function loadInvitations() {
     try {
@@ -93,7 +104,8 @@ export function InviteMemberDialog({ workspaceId }: { workspaceId: string }) {
   }
 
   function handleOpenChange(nextOpen: boolean) {
-    setOpen(nextOpen)
+    if (controlledOpen === undefined) setInternalOpen(nextOpen)
+    onOpenChange?.(nextOpen)
     if (nextOpen) {
       setIsLoading(true)
       void loadInvitations()
@@ -178,10 +190,12 @@ export function InviteMemberDialog({ workspaceId }: { workspaceId: string }) {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger render={<Button />}>
-        <HugeiconsIcon icon={Add01Icon} strokeWidth={2} />
-        Invite
-      </DialogTrigger>
+      {trigger !== null && (
+        <DialogTrigger render={trigger ?? <Button />}>
+          <HugeiconsIcon icon={Add01Icon} strokeWidth={2} />
+          Invite
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Invite a workspace member</DialogTitle>

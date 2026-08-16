@@ -53,7 +53,7 @@ Kinds are first-class in the model while their content surfaces ship incremental
 5. **Simple authz until it hurts** — start with `owner` / `member`; richer ReBAC (Zanzibar-style) is deferred, not denied.
 6. **Tasks are project content** — tasks belong to a project and do not appear as independent resource-tree nodes.
 7. **Stable internal links** — bookmarks reference resource IDs; UI paths are derived rather than persisted.
-8. **Reusable AI behavior** — agents own identity and instructions; chats own conversation history, can switch between models and agents, and can use workspace-scoped tools to inspect or create resources.
+8. **Reusable AI behavior** — agents own identity and instructions; chats own conversation history, can switch between models and agents, and can use workspace-scoped tools to inspect, create, or perform explicitly requested edits to resources.
 9. **Contextual conversation** — human messages are normalized rows synchronized by Zero; participant channels are navigable resources, while DMs use their dedicated area and resource threads appear as editable tabs in the workspace's inline discussion panel.
 10. **Teams are organizational only** — teams group existing workspace members and do not participate in authorization or other domains.
 

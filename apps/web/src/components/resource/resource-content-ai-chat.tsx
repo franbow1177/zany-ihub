@@ -6,7 +6,12 @@ import type { JSONContent } from "@tiptap/core"
 import { useQuery, useZero } from "@rocicorp/zero/react"
 import { mutators } from "@workspace/zero/mutators"
 import { queries } from "@workspace/zero/queries"
-import { DefaultChatTransport, type UIMessage } from "ai"
+import {
+  DefaultChatTransport,
+  getToolName,
+  isToolUIPart,
+  type UIMessage,
+} from "ai"
 import { Button } from "@workspace/ui/components/button"
 import {
   Select,
@@ -21,7 +26,6 @@ import {
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
 
-import { ResourceKindIcon } from "@/components/resource/resource-kind-icon"
 import {
   API_URL,
   apiFetch,
@@ -42,12 +46,181 @@ import { messageMetadataRichText } from "./resource-chat-rich-text-utils"
 import { ResourcePageHeader } from "./resource-page-header"
 
 type AiChatMessage = UIMessage<{ richText?: JSONContent }>
+type AiChatMessagePart = AiChatMessage["parts"][number]
+type ResourceReference = { id: string; name: string }
 
 function messageText(message: AiChatMessage) {
   return message.parts
     .filter((part) => part.type === "text")
     .map((part) => part.text)
     .join("")
+}
+
+const TOOL_ACTIVITY_LABELS: Record<
+  string,
+  { active: string; complete: string; referencePrefix?: string }
+> = {
+  listResources: {
+    active: "Searching workspace…",
+    complete: "Searched workspace",
+  },
+  getResource: { active: "Reading resource…", complete: "Read resource" },
+  listMembers: { active: "Finding members…", complete: "Found members" },
+  createResource: {
+    active: "Creating resource…",
+    complete: "Created resource",
+    referencePrefix: "Created",
+  },
+  updateDocument: {
+    active: "Updating document…",
+    complete: "Updated document",
+    referencePrefix: "Updated",
+  },
+  updateTable: {
+    active: "Updating table…",
+    complete: "Updated table",
+    referencePrefix: "Updated",
+  },
+}
+
+function resourceReference(value: unknown): ResourceReference | null {
+  if (!value || typeof value !== "object") return null
+  const resource = Reflect.get(value, "resource")
+  if (!resource || typeof resource !== "object") return null
+  const id = Reflect.get(resource, "id")
+  const name = Reflect.get(resource, "name")
+  return typeof id === "string" && typeof name === "string"
+    ? { id, name }
+    : null
+}
+
+function resourceMentionMarkdown(reference: ResourceReference) {
+  const label = reference.name.replace(/[\]"\r\n]/g, "")
+  return `[@ id="resource:${reference.id}" label="${label}"]`
+}
+
+function addResourceMentions(text: string, references: ResourceReference[]) {
+  return references.reduce((result, reference, index) => {
+    const mention = resourceMentionMarkdown(reference)
+    if (result.includes(`id="resource:${reference.id}"`)) return result
+    const placeholder = `\u0000resource-mention-${index}\u0000`
+    return result
+      .replaceAll(`resource:${reference.id}`, placeholder)
+      .replaceAll(reference.id, mention)
+      .replaceAll(placeholder, mention)
+  }, text)
+}
+
+function toolActivity(part: AiChatMessagePart) {
+  if (!isToolUIPart(part)) return null
+
+  const toolName = getToolName(part)
+  const labels = TOOL_ACTIVITY_LABELS[toolName] ?? {
+    active: `Using ${toolName}…`,
+    complete: `Used ${toolName}`,
+  }
+  const failed = part.state === "output-error" || part.state === "output-denied"
+  const complete = part.state === "output-available"
+
+  return {
+    id: part.toolCallId,
+    toolName,
+    label: failed
+      ? `${toolName} failed`
+      : complete
+        ? labels.complete
+        : labels.active,
+    pending: !failed && !complete,
+    failed,
+    complete,
+    reference:
+      complete && labels.referencePrefix
+        ? resourceReference(part.output)
+        : null,
+    referencePrefix: labels.referencePrefix,
+  }
+}
+
+function messageToolActivities(message: AiChatMessage) {
+  const activities = message.parts
+    .map(toolActivity)
+    .filter(
+      (activity): activity is NonNullable<ReturnType<typeof toolActivity>> =>
+        activity !== null
+    )
+
+  return activities.filter((activity, index) => {
+    if (!activity.failed) return true
+    if (
+      activities.some(
+        (candidate) =>
+          candidate.toolName === activity.toolName && candidate.complete
+      )
+    ) {
+      return false
+    }
+    return (
+      activities.findLastIndex(
+        (candidate) =>
+          candidate.toolName === activity.toolName && candidate.failed
+      ) === index
+    )
+  })
+}
+
+function toolActivityContent(
+  activity: NonNullable<ReturnType<typeof toolActivity>>
+): JSONContent | null {
+  if (!activity.reference || !activity.referencePrefix) return null
+  return {
+    type: "doc",
+    content: [
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: `${activity.referencePrefix} ` },
+          {
+            type: "mention",
+            attrs: {
+              id: `resource:${activity.reference.id}`,
+              label: activity.reference.name,
+            },
+          },
+        ],
+      },
+    ],
+  }
+}
+
+function ToolActivity({
+  activity,
+  mentionItems,
+}: {
+  activity: NonNullable<ReturnType<typeof toolActivity>>
+  mentionItems: ReturnType<typeof buildWorkspaceMentionItems>
+}) {
+  const content = toolActivityContent(activity)
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2 text-xs",
+        activity.failed ? "text-destructive" : "text-muted-foreground"
+      )}
+    >
+      <span
+        className={cn(
+          "size-1.5 shrink-0 rounded-full",
+          activity.failed ? "bg-destructive" : "bg-current",
+          activity.pending && "animate-pulse"
+        )}
+      />
+      {content ? (
+        <ResourceChatMessage content={content} mentionItems={mentionItems} />
+      ) : (
+        activity.label
+      )}
+    </div>
+  )
 }
 
 function ChatSession({
@@ -91,6 +264,12 @@ function ChatSession({
     }
   )
   const isStreaming = status === "submitted" || status === "streaming"
+  const lastMessage = messages.at(-1)
+  const hasVisibleAssistantActivity =
+    lastMessage?.role === "assistant" &&
+    (Boolean(messageText(lastMessage).trim()) ||
+      lastMessage.parts.some((part) => isToolUIPart(part)))
+  const showThinking = isStreaming && !hasVisibleAssistantActivity
   const targetValue = content.chat.agentId
     ? `agent:${content.chat.agentId}`
     : `model:${content.chat.model}`
@@ -191,32 +370,22 @@ function ChatSession({
           ) : (
             <div className="mx-auto max-w-3xl space-y-6">
               {messages.map((message) => {
-                const text = messageText(message)
-                if (!text) return null
+                const toolActivities = messageToolActivities(message)
+                const references = toolActivities.flatMap((activity) =>
+                  activity.reference ? [activity.reference] : []
+                )
+                const text = addResourceMentions(
+                  messageText(message),
+                  references
+                )
+                if (!text && toolActivities.length === 0) return null
                 const isUser = message.role === "user"
                 const richText = messageMetadataRichText(message.metadata)
                 return (
                   <div
                     key={message.id}
-                    className={cn("flex gap-3", isUser && "justify-end")}
+                    className={cn("flex", isUser && "justify-end")}
                   >
-                    {!isUser && (
-                      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                        {selectedAgent ? (
-                          <ResourceKindIcon
-                            kind="agent"
-                            icon={selectedAgent.icon}
-                            className="size-4"
-                          />
-                        ) : (
-                          <HugeiconsIcon
-                            icon={RESOURCE_KIND_CONFIG["ai-chat"].icon}
-                            className="size-4"
-                            strokeWidth={2}
-                          />
-                        )}
-                      </span>
-                    )}
                     <div
                       className={cn(
                         "max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6",
@@ -225,25 +394,31 @@ function ChatSession({
                           : "rounded-bl-md bg-muted"
                       )}
                     >
-                      <ResourceChatMessage
-                        content={richText ?? text}
-                        contentType={richText ? "json" : "markdown"}
-                        mentionItems={mentionItems}
-                        className={isUser ? "chat-tiptap-user" : undefined}
-                      />
+                      {toolActivities.length > 0 && (
+                        <div className={cn("space-y-1.5", text && "mb-2.5")}>
+                          {toolActivities.map((activity) => (
+                            <ToolActivity
+                              key={activity.id}
+                              activity={activity}
+                              mentionItems={mentionItems}
+                            />
+                          ))}
+                        </div>
+                      )}
+                      {text && (
+                        <ResourceChatMessage
+                          content={richText ?? text}
+                          contentType={richText ? "json" : "markdown"}
+                          mentionItems={mentionItems}
+                          className={isUser ? "chat-tiptap-user" : undefined}
+                        />
+                      )}
                     </div>
                   </div>
                 )
               })}
-              {status === "submitted" && (
-                <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                  <span className="flex size-8 items-center justify-center rounded-lg bg-muted">
-                    <HugeiconsIcon
-                      icon={RESOURCE_KIND_CONFIG["ai-chat"].icon}
-                      className="size-4 animate-pulse"
-                      strokeWidth={2}
-                    />
-                  </span>
+              {showThinking && (
+                <div className="animate-pulse text-sm text-muted-foreground">
                   Thinking…
                 </div>
               )}
