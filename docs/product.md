@@ -11,7 +11,7 @@
 
 Zany iHub is a **workspace hub** for organizing work as a tree of typed **resources**. People sign in, land in workspaces they belong to, and create or open resources (folders and content types) inside those workspaces.
 
-The product name in the monorepo is `zanbase-ihub` / “Zany iHub”; treat “iHub” as the product surface.
+The product name in the monorepo is `zany-ihub` / “Zany iHub”; treat “iHub” as the product surface.
 
 ## Audience
 

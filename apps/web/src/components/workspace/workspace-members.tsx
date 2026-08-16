@@ -61,7 +61,7 @@ function MemberAvatar({ member }: { member: WorkspaceMember }) {
   )
 }
 
-function InviteMemberDialog({ workspaceId }: { workspaceId: string }) {
+export function InviteMemberDialog({ workspaceId }: { workspaceId: string }) {
   const [open, setOpen] = useState(false)
   const [email, setEmail] = useState("")
   const [invitations, setInvitations] = useState<WorkspaceInvitation[]>([])

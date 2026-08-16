@@ -67,7 +67,11 @@ function idsBelow(resourceId: string, resources: Resource[]) {
   while (foundMore) {
     foundMore = false
     resources.forEach((resource) => {
-      if (resource.parentId && ids.has(resource.parentId) && !ids.has(resource.id)) {
+      if (
+        resource.parentId &&
+        ids.has(resource.parentId) &&
+        !ids.has(resource.id)
+      ) {
         ids.add(resource.id)
         foundMore = true
       }
@@ -76,7 +80,13 @@ function idsBelow(resourceId: string, resources: Resource[]) {
   return ids
 }
 
-function RootDrop({ active, children }: { active: boolean; children: React.ReactNode }) {
+function RootDrop({
+  active,
+  children,
+}: {
+  active: boolean
+  children: React.ReactNode
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: ROOT, disabled: !active })
   return (
     <div
@@ -87,7 +97,11 @@ function RootDrop({ active, children }: { active: boolean; children: React.React
         isOver && "border-primary bg-primary/10 text-primary"
       )}
     >
-      <HugeiconsIcon icon={FolderRootIcon} strokeWidth={2} className="size-3.5" />
+      <HugeiconsIcon
+        icon={FolderRootIcon}
+        strokeWidth={2}
+        className="size-3.5"
+      />
       {isOver ? "Move to workspace root" : children}
     </div>
   )
@@ -121,7 +135,7 @@ function ResourceMenu({
               variant="ghost"
               size="icon-sm"
               aria-label={`Actions for ${resource.name}`}
-              className="relative z-20 opacity-60 hover:opacity-100 group-hover:opacity-100"
+              className="relative z-20 opacity-60 group-hover:opacity-100 hover:opacity-100"
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => event.stopPropagation()}
             />
@@ -133,7 +147,9 @@ function ResourceMenu({
           <DropdownMenuGroup>
             <DropdownMenuItem
               render={
-                <Link to={`/workspace/${workspaceId}/resource/${resource.id}`} />
+                <Link
+                  to={`/workspace/${workspaceId}/resource/${resource.id}`}
+                />
               }
             >
               <HugeiconsIcon icon={ArrowUpRight01Icon} strokeWidth={2} />
@@ -187,16 +203,31 @@ function ResourceMenu({
   )
 }
 
-function CardFace({ resource, overlay = false }: { resource: Resource; overlay?: boolean }) {
+function CardFace({
+  resource,
+  overlay = false,
+}: {
+  resource: Resource
+  overlay?: boolean
+}) {
   const kind = RESOURCE_KIND_CONFIG[resource.kind]
   return (
-    <Card className={cn("gap-0 py-0", overlay && "w-72 shadow-xl")}>
-      <CardHeader className="grid min-h-24 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 px-3.5 py-3.5">
-        <span className="row-span-2 flex size-11 items-center justify-center rounded-xl bg-muted text-muted-foreground transition-colors group-hover:bg-background group-hover:text-foreground">
-          <ResourceKindIcon kind={resource.kind} icon={resource.icon} />
+    <Card
+      className={cn(
+        "gap-0 bg-secondary py-0 ring-0",
+        overlay && "w-64 shadow-xl"
+      )}
+    >
+      <CardHeader className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2.5 px-3 py-2.5">
+        <span className="row-span-2 flex size-8 items-center justify-center rounded-lg bg-background text-muted-foreground transition-colors group-hover:text-foreground">
+          <ResourceKindIcon
+            kind={resource.kind}
+            icon={resource.icon}
+            className="size-4"
+          />
         </span>
-        <CardTitle className="truncate pr-7">{resource.name}</CardTitle>
-        <CardDescription className="truncate">
+        <CardTitle className="truncate pr-7 text-sm">{resource.name}</CardTitle>
+        <CardDescription className="truncate text-xs">
           {resource.description || kind.label}
         </CardDescription>
       </CardHeader>
@@ -235,7 +266,7 @@ function ResourceCard({
     <div
       ref={setDropRef}
       className={cn(
-        "group relative min-w-0 rounded-xl outline-none transition-all",
+        "group relative min-w-0 rounded-xl transition-all outline-none",
         isOver && "ring-2 ring-primary ring-offset-2 ring-offset-background"
       )}
     >
@@ -245,7 +276,7 @@ function ResourceCard({
         {...attributes}
         {...listeners}
         className={cn(
-          "relative touch-none select-none rounded-xl transition-opacity",
+          "relative touch-none rounded-xl transition-opacity select-none",
           isDragging ? "cursor-grabbing opacity-20" : "cursor-grab"
         )}
       >
@@ -255,7 +286,7 @@ function ResourceCard({
           aria-label={`Open ${resource.name}`}
           className="absolute inset-0 z-10 rounded-xl outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
         />
-        <div className="absolute right-2 top-2 z-20">
+        <div className="absolute top-2 right-2 z-20">
           <ResourceMenu
             resource={resource}
             resources={resources}
@@ -313,16 +344,23 @@ export function ResourcesView({
         })
       )
       const serverResult = await result.server
-      if (serverResult.type === "error") throw new Error(serverResult.error.message)
+      if (serverResult.type === "error")
+        throw new Error(serverResult.error.message)
     } catch (moveError) {
-      setError(moveError instanceof Error ? moveError.message : "Could not move resource")
+      setError(
+        moveError instanceof Error
+          ? moveError.message
+          : "Could not move resource"
+      )
     }
   }
 
   function dragEnd(event: DragEndEvent) {
     setActiveId(null)
     if (!event.over) return
-    const resource = resources.find((item) => item.id === String(event.active.id))
+    const resource = resources.find(
+      (item) => item.id === String(event.active.id)
+    )
     if (!resource) return
     const target = String(event.over.id)
     if (target === ROOT) void move(resource, null)
@@ -370,7 +408,10 @@ export function ResourcesView({
         </div>
 
         {error && (
-          <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+          <p
+            className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            role="alert"
+          >
             {error}
           </p>
         )}
@@ -379,9 +420,14 @@ export function ResourcesView({
           <Empty className="min-h-64 border">
             <EmptyHeader>
               <EmptyMedia variant="icon">
-                <HugeiconsIcon icon={parentId ? FolderOpenIcon : Folder01Icon} strokeWidth={2} />
+                <HugeiconsIcon
+                  icon={parentId ? FolderOpenIcon : Folder01Icon}
+                  strokeWidth={2}
+                />
               </EmptyMedia>
-              <EmptyTitle>{parentId ? "This folder is empty" : "No resources yet"}</EmptyTitle>
+              <EmptyTitle>
+                {parentId ? "This folder is empty" : "No resources yet"}
+              </EmptyTitle>
               <EmptyDescription>
                 {parentId
                   ? "Create a resource here, or move one into this folder."
@@ -390,7 +436,7 @@ export function ResourcesView({
             </EmptyHeader>
           </Empty>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {visible.map((resource) => (
               <ResourceCard
                 key={resource.id}

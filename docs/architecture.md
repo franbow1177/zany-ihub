@@ -74,7 +74,7 @@ Canonical shapes: `packages/db/src/schema/` (grep table exports `workspace`, `wo
 
 1. Creating a workspace inserts the creator as `owner` in the **same transaction**.
 2. Access to a workspace or its resources requires a `workspace_member` row.
-3. Only `owner` may create, renew, or revoke workspace invitations; invitations always produce `member`, never `owner`.
+3. Only `owner` may create, renew, or revoke workspace invitations or change/remove workspace members; invitations always produce `member`, never `owner`, and every workspace must retain at least one owner.
 4. A pending invitation grants no access. Acceptance requires a signed-in Google account whose normalized email matches the invitation, and creates membership in the invitation-consumption transaction.
 5. Invitation tokens are random, expiring, single-purpose credentials. Only their SHA-256 hashes are persisted, and renewal invalidates the previous token.
 6. `resource.parentId`, when set, must reference a **folder** in the **same** workspace.

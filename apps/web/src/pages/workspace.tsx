@@ -56,7 +56,7 @@ export function WorkspacePage() {
         {shell.isLoading && shell.resources.length === 0 ? (
           <div className="space-y-4">
             <Skeleton className="h-8 w-40" />
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {Array.from({ length: 6 }, (_, index) => (
                 <Skeleton className="h-24 rounded-xl" key={index} />
               ))}

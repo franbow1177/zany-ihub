@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { Link, useLocation, useNavigate } from "react-router-dom"
 import {
   AiChat02Icon,
   AiUserIcon,
@@ -7,12 +7,14 @@ import {
   BubbleChatIcon,
   ChevronRightIcon,
   Clock01Icon,
+  DashboardSquare01Icon,
   File01Icon,
   Folder01Icon,
   Logout01Icon,
   Note01Icon,
   Table01Icon,
   Task01Icon,
+  UserGroupIcon,
   WhiteboardIcon,
 } from "@hugeicons/core-free-icons"
 import type { IconSvgElement } from "@hugeicons/react"
@@ -38,8 +40,6 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
-  SidebarRail,
-  SidebarSeparator,
 } from "@workspace/ui/components/sidebar"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 
@@ -82,7 +82,7 @@ function ResourceSubmenu({
   }
 
   return (
-    <SidebarMenuSub className="gap-0">
+    <SidebarMenuSub className="mx-0 gap-0 border-l-0 px-0 py-0 pl-2">
       {resources.map((resource) => (
         <SidebarMenuSubItem key={resource.id}>
           <SidebarMenuSubButton
@@ -98,6 +98,38 @@ function ResourceSubmenu({
         </SidebarMenuSubItem>
       ))}
     </SidebarMenuSub>
+  )
+}
+
+function CollapsibleSidebarGroup({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(true)
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <SidebarGroup className="py-1">
+        <CollapsibleTrigger
+          render={
+            <SidebarGroupLabel className="cursor-pointer hover:bg-sidebar-accent" />
+          }
+        >
+          <span>{label}</span>
+          <HugeiconsIcon
+            icon={ChevronRightIcon}
+            strokeWidth={2}
+            className={`ml-auto transition-transform ${open ? "rotate-90" : ""}`}
+          />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarGroupContent>{children}</SidebarGroupContent>
+        </CollapsibleContent>
+      </SidebarGroup>
+    </Collapsible>
   )
 }
 
@@ -161,6 +193,7 @@ export function WorkspaceSidebar({
   isLoading: boolean
 }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const { data: session } = authClient.useSession()
   const recent = [...resources]
     .sort(
@@ -175,7 +208,7 @@ export function WorkspaceSidebar({
   }
 
   return (
-    <Sidebar collapsible="offcanvas">
+    <Sidebar collapsible="offcanvas" className="border-none">
       <SidebarHeader className="p-2">
         <WorkspacesDropdown
           workspace={workspace}
@@ -183,7 +216,6 @@ export function WorkspaceSidebar({
           isLoading={isLoading}
         />
       </SidebarHeader>
-      <SidebarSeparator />
       <SidebarContent>
         {isLoading && resources.length === 0 ? (
           <SidebarGroup>
@@ -195,22 +227,44 @@ export function WorkspaceSidebar({
           </SidebarGroup>
         ) : workspace ? (
           <>
-            <SidebarGroup>
-              <SidebarGroupLabel>Workspace</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <CollapsibleResourceGroup
-                  label="Recent"
-                  icon={Clock01Icon}
-                  resources={recent}
-                  workspaceId={workspace.id}
-                  activeResourceId={activeResourceId}
-                />
-              </SidebarGroupContent>
-            </SidebarGroup>
-            <SidebarSeparator />
-            <SidebarGroup>
-              <SidebarGroupLabel>Resources by kind</SidebarGroupLabel>
-              <SidebarGroupContent className="space-y-0.5">
+            <CollapsibleSidebarGroup label="Workspace">
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={
+                      location.pathname === `/workspace/${workspace.id}`
+                    }
+                    render={<Link to={`/workspace/${workspace.id}`} />}
+                  >
+                    <HugeiconsIcon
+                      icon={DashboardSquare01Icon}
+                      strokeWidth={2}
+                    />
+                    <span>Overview</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={
+                      location.pathname === `/workspace/${workspace.id}/members`
+                    }
+                    render={<Link to={`/workspace/${workspace.id}/members`} />}
+                  >
+                    <HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />
+                    <span>Members</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+              <CollapsibleResourceGroup
+                label="Recent"
+                icon={Clock01Icon}
+                resources={recent}
+                workspaceId={workspace.id}
+                activeResourceId={activeResourceId}
+              />
+            </CollapsibleSidebarGroup>
+            <CollapsibleSidebarGroup label="Resources">
+              <div className="space-y-0.5">
                 {(Object.keys(KIND_CONFIG) as ResourceKind[]).map((kind) => {
                   const config = KIND_CONFIG[kind]
                   const items = resources
@@ -231,8 +285,8 @@ export function WorkspaceSidebar({
                     />
                   )
                 })}
-              </SidebarGroupContent>
-            </SidebarGroup>
+              </div>
+            </CollapsibleSidebarGroup>
           </>
         ) : null}
       </SidebarContent>
@@ -266,7 +320,6 @@ export function WorkspaceSidebar({
           </div>
         </SidebarFooter>
       )}
-      <SidebarRail />
     </Sidebar>
   )
 }

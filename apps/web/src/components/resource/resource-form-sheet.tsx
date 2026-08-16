@@ -26,11 +26,6 @@ import { useQuery, useZero } from "@rocicorp/zero/react"
 import { mutators } from "@workspace/zero/mutators"
 import { queries } from "@workspace/zero/queries"
 import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@workspace/ui/components/alert"
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -64,7 +59,6 @@ import {
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetFooter,
   SheetHeader,
   SheetTitle,
@@ -81,11 +75,11 @@ import {
 } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
 import { ResourceIconPicker } from "./resource-icon-picker"
+import { ResourcePicker } from "./resource-picker"
 
-const ROOT_LOCATION = "__workspace_root__"
 const PROPERTY_ROW = "gap-0 border-t sm:grid sm:grid-cols-[13rem_minmax(0,1fr)]"
-const PROPERTY_LABEL = "w-full px-5 pt-4 sm:h-full sm:border-r sm:px-5 sm:py-5"
-const PROPERTY_CONTROL = "min-w-0 p-4 sm:p-5"
+const PROPERTY_LABEL = "w-full sm:h-full sm:border-r p-3"
+const PROPERTY_CONTROL = "min-w-0 p-3"
 
 const KIND_CONFIG: Record<
   ResourceKind,
@@ -209,8 +203,6 @@ function KindSpecificFields({
   selectedChatMemberIds: string[]
   onChatMemberToggle: (userId: string, selected: boolean) => void
 }) {
-  const config = KIND_CONFIG[kind]
-
   if (kind === "file") {
     return (
       <FieldGroup className="gap-0">
@@ -374,30 +366,7 @@ function KindSpecificFields({
     )
   }
 
-  const contentMessage = {
-    folder:
-      "Folders use the shared resource fields only. Child resources are managed from the folder view.",
-    doc: "Document content is edited from the document view.",
-    table: "Columns and rows are managed from the table view.",
-    whiteboard:
-      "The whiteboard opens as a blank canvas and saves automatically.",
-    project: "Project status and tasks are managed from the project view.",
-    bookmark: "The bookmark target is managed from the bookmark view.",
-    agent: "Model, persona, and instructions are managed from the agent view.",
-    "ai-chat": "Model or agent selection is managed from the chat composer.",
-    chat: "Messages are synchronized live for workspace members.",
-    file: "File uploads are managed above.",
-  }[kind]
-
-  return (
-    <div className="border-t p-5">
-      <Alert>
-        <HugeiconsIcon icon={config.icon} strokeWidth={2} />
-        <AlertTitle>{config.label} fields</AlertTitle>
-        <AlertDescription>{contentMessage}</AlertDescription>
-      </Alert>
-    </div>
-  )
+  return null
 }
 
 export function ResourceFormSheet({
@@ -459,11 +428,6 @@ export function ResourceFormSheet({
       resource ? descendantIds(resource.id, resources) : new Set<string>(),
     [resource, resources]
   )
-  const folders = resources
-    .filter(
-      (item) => item.kind === "folder" && !unavailableFolderIds.has(item.id)
-    )
-    .sort((a, b) => a.name.localeCompare(b.name))
   const selectedChatMemberIds =
     channelMemberSelection ??
     (resource?.kind === "chat" && channel?.type === "channel"
@@ -471,6 +435,10 @@ export function ResourceFormSheet({
       : session?.user.id
         ? [session.user.id]
         : [])
+  const hasKindSpecificFields =
+    kind === "file" ||
+    kind === "chat" ||
+    (kind === "bookmark" && !resource)
 
   function resetForm() {
     setName(resource?.name ?? "Untitled")
@@ -687,25 +655,19 @@ export function ResourceFormSheet({
         className="gap-0 data-[side=right]:sm:max-w-3xl [&_svg]:size-4"
       >
         <form className="flex min-h-0 flex-1 flex-col" onSubmit={save}>
-          <SheetHeader className="border-b px-5 py-5 pr-14">
+          <SheetHeader className="border-b p-3 pr-14">
             <SheetTitle className="text-xl">
               {isEditing ? "Edit resource" : "New resource"}
             </SheetTitle>
-            <SheetDescription>
-              Shared resource settings and fields specific to its kind.
-            </SheetDescription>
           </SheetHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto">
             <FieldSet className="gap-0">
-              <div className="p-5">
+              <div className="p-3">
                 <FieldLegend className="flex items-center gap-2">
                   <HugeiconsIcon icon={GridIcon} strokeWidth={2} />
                   Resource
                 </FieldLegend>
-                <FieldDescription>
-                  Identity and location shared by every resource kind.
-                </FieldDescription>
               </div>
               <FieldGroup className="gap-0 border-b">
                 <Field className={PROPERTY_ROW}>
@@ -767,10 +729,6 @@ export function ResourceFormSheet({
                       value={icon}
                       onValueChange={setIcon}
                     />
-                    <FieldDescription>
-                      Choose a Hugeicons glyph. The resource type icon is used
-                      by default.
-                    </FieldDescription>
                   </div>
                 </Field>
 
@@ -800,77 +758,62 @@ export function ResourceFormSheet({
                     Location
                   </FieldLabel>
                   <div className={PROPERTY_CONTROL}>
-                    <Select
-                      value={parentId ?? ROOT_LOCATION}
-                      onValueChange={(value) =>
-                        setParentId(
-                          value === ROOT_LOCATION ? null : String(value)
-                        )
-                      }
-                    >
-                      <SelectTrigger className="h-10 w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={ROOT_LOCATION}>
-                          <HugeiconsIcon icon={GridIcon} strokeWidth={2} />
-                          Workspace root
-                        </SelectItem>
-                        {folders.map((folder) => (
-                          <SelectItem value={folder.id} key={folder.id}>
-                            <HugeiconsIcon
-                              icon={Folder01Icon}
-                              strokeWidth={2}
-                            />
-                            {folder.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <ResourcePicker
+                      resources={resources}
+                      value={parentId}
+                      onValueChange={setParentId}
+                      allowedKinds={["folder"]}
+                      includeWorkspaceRoot
+                      excludeIds={unavailableFolderIds}
+                      placeholder="Choose a location"
+                      searchPlaceholder="Search folders…"
+                    />
                   </div>
                 </Field>
               </FieldGroup>
             </FieldSet>
 
-            <FieldSet className="gap-0">
-              <div className="p-5">
-                <FieldLegend className="flex items-center gap-2">
-                  <HugeiconsIcon
-                    icon={KIND_CONFIG[kind].icon}
-                    strokeWidth={2}
-                  />
-                  {KIND_CONFIG[kind].label} fields
-                </FieldLegend>
-                <FieldDescription>
-                  {KIND_CONFIG[kind].description}
-                </FieldDescription>
-              </div>
-              <KindSpecificFields
-                kind={kind}
-                resource={resource}
-                file={file}
-                onFileChange={setFile}
-                resources={resources}
-                bookmarkTargetType={bookmarkTargetType}
-                bookmarkResourceId={bookmarkResourceId}
-                bookmarkUrl={bookmarkUrl}
-                onBookmarkTargetTypeChange={setBookmarkTargetType}
-                onBookmarkResourceIdChange={setBookmarkResourceId}
-                onBookmarkUrlChange={setBookmarkUrl}
-                members={members}
-                currentUserId={session?.user.id}
-                selectedChatMemberIds={selectedChatMemberIds}
-                onChatMemberToggle={(userId, selected) =>
-                  setChannelMemberSelection(
-                    selected
-                      ? selectedChatMemberIds.includes(userId)
-                        ? selectedChatMemberIds
-                        : [...selectedChatMemberIds, userId]
-                      : selectedChatMemberIds.filter((id) => id !== userId)
-                  )
-                }
-              />
-            </FieldSet>
+            {hasKindSpecificFields && (
+              <FieldSet className="gap-0">
+                <div className="p-5">
+                  <FieldLegend className="flex items-center gap-2">
+                    <HugeiconsIcon
+                      icon={KIND_CONFIG[kind].icon}
+                      strokeWidth={2}
+                    />
+                    {KIND_CONFIG[kind].label} fields
+                  </FieldLegend>
+                  <FieldDescription>
+                    {KIND_CONFIG[kind].description}
+                  </FieldDescription>
+                </div>
+                <KindSpecificFields
+                  kind={kind}
+                  resource={resource}
+                  file={file}
+                  onFileChange={setFile}
+                  resources={resources}
+                  bookmarkTargetType={bookmarkTargetType}
+                  bookmarkResourceId={bookmarkResourceId}
+                  bookmarkUrl={bookmarkUrl}
+                  onBookmarkTargetTypeChange={setBookmarkTargetType}
+                  onBookmarkResourceIdChange={setBookmarkResourceId}
+                  onBookmarkUrlChange={setBookmarkUrl}
+                  members={members}
+                  currentUserId={session?.user.id}
+                  selectedChatMemberIds={selectedChatMemberIds}
+                  onChatMemberToggle={(userId, selected) =>
+                    setChannelMemberSelection(
+                      selected
+                        ? selectedChatMemberIds.includes(userId)
+                          ? selectedChatMemberIds
+                          : [...selectedChatMemberIds, userId]
+                        : selectedChatMemberIds.filter((id) => id !== userId)
+                    )
+                  }
+                />
+              </FieldSet>
+            )}
 
             {error && <FieldError className="px-5 py-4">{error}</FieldError>}
           </div>

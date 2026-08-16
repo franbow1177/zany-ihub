@@ -415,4 +415,62 @@ describe("workspace routes", () => {
 
     expect(response.status).toBe(409)
   })
+
+  test("lets owners manage members without removing the last owner", async () => {
+    const workspace = await createWorkspace("Managed Team")
+    const memberId = crypto.randomUUID()
+    const ownerMembership = await db.query.workspaceMember.findFirst({
+      where: (row, { and, eq }) =>
+        and(eq(row.workspaceId, workspace.id), eq(row.userId, owner.id)),
+    })
+    await db.insert(schema.workspaceMember).values({
+      id: memberId,
+      workspaceId: workspace.id,
+      userId: member.id,
+      role: "member",
+    })
+
+    const forbidden = await request(
+      `/workspaces/${workspace.id}/members/${ownerMembership!.id}`,
+      { method: "DELETE" },
+      memberHeaders
+    )
+    expect(forbidden.status).toBe(403)
+
+    const lastOwnerDemotion = await request(
+      `/workspaces/${workspace.id}/members/${ownerMembership!.id}`,
+      { method: "PATCH", body: JSON.stringify({ role: "member" }) },
+      ownerHeaders
+    )
+    expect(lastOwnerDemotion.status).toBe(409)
+
+    const promoted = await request(
+      `/workspaces/${workspace.id}/members/${memberId}`,
+      { method: "PATCH", body: JSON.stringify({ role: "owner" }) },
+      ownerHeaders
+    )
+    expect(promoted.status).toBe(200)
+    expect(await promoted.json()).toMatchObject({ id: memberId, role: "owner" })
+
+    const demoted = await request(
+      `/workspaces/${workspace.id}/members/${ownerMembership!.id}`,
+      { method: "PATCH", body: JSON.stringify({ role: "member" }) },
+      memberHeaders
+    )
+    expect(demoted.status).toBe(200)
+
+    const removed = await request(
+      `/workspaces/${workspace.id}/members/${ownerMembership!.id}`,
+      { method: "DELETE" },
+      memberHeaders
+    )
+    expect(removed.status).toBe(204)
+
+    const lastOwnerRemoval = await request(
+      `/workspaces/${workspace.id}/members/${memberId}`,
+      { method: "DELETE" },
+      memberHeaders
+    )
+    expect(lastOwnerRemoval.status).toBe(409)
+  })
 })

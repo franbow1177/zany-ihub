@@ -63,7 +63,7 @@
 
 ```json
 {
-  "name": "zanbase-ihub",
+  "name": "zany-ihub",
   "version": "0.0.1",
   "private": true,
   "workspaces": ["apps/*", "packages/*", "services/*"],
