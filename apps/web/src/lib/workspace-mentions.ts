@@ -11,6 +11,7 @@ export type WorkspaceMentionItem = {
   resourceDescription?: string | null
   updatedAt?: number
   image?: string | null
+  userId?: string
   memberRole?: WorkspaceMember["role"]
 }
 
@@ -40,6 +41,7 @@ export function buildWorkspaceMentionItems(
       label: member.name || member.email,
       description: member.email,
       image: member.image,
+      userId: member.userId,
       memberRole: member.role,
     }))
 

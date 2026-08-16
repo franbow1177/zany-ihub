@@ -1,10 +1,15 @@
-import type { ReactNode } from "react"
+import { useState, type MouseEvent, type ReactNode } from "react"
+import { useNavigate, useParams } from "react-router-dom"
+import { useQuery, useZero } from "@rocicorp/zero/react"
+import { mutators } from "@workspace/zero/mutators"
+import { queries } from "@workspace/zero/queries"
 import {
   Avatar,
   AvatarFallback,
   AvatarImage,
 } from "@workspace/ui/components/avatar"
 import { Badge } from "@workspace/ui/components/badge"
+import { Button } from "@workspace/ui/components/button"
 import {
   HoverCard,
   HoverCardContent,
@@ -12,6 +17,7 @@ import {
 } from "@workspace/ui/components/hover-card"
 
 import { ResourceKindIcon } from "@/components/resource/resource-kind-icon"
+import { authClient } from "@/lib/auth-client"
 import { RESOURCE_KIND_CONFIG } from "@/lib/resource-kind"
 import type { WorkspaceMentionItem } from "@/lib/workspace-mentions"
 
@@ -45,13 +51,99 @@ export function EntityHoverCard({
   entity: WorkspaceMentionItem
   children: ReactNode
 }) {
+  const navigate = useNavigate()
+  const { workspaceId = "" } = useParams()
+  const zero = useZero()
+  const { data: session } = authClient.useSession()
+  const [opening, setOpening] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [chats = []] = useQuery(
+    queries.humanChats.byWorkspace({
+      workspaceId: workspaceId || "__none__",
+    }),
+    { enabled: Boolean(session && workspaceId && entity.type === "member") }
+  )
+
   const isResource = entity.type === "resource" && entity.resourceKind
   const resourceKind = isResource ? entity.resourceKind : null
+  const isSelf =
+    entity.type === "member" &&
+    Boolean(entity.userId) &&
+    entity.userId === session?.user.id
+  const canOpenResource = Boolean(workspaceId && entity.type === "resource")
+  const canMessage =
+    Boolean(workspaceId && entity.type === "member" && entity.userId) && !isSelf
+  const showAction = canOpenResource || canMessage
   const footer = resourceKind
     ? [RESOURCE_KIND_CONFIG[resourceKind].label, updatedLabel(entity.updatedAt)]
         .filter(Boolean)
         .join(" · ")
     : `Workspace ${entity.memberRole ?? "member"}`
+
+  const dmByUserId = new Map<string, (typeof chats)[number]>()
+  for (const chat of chats) {
+    if (chat.type !== "dm") continue
+    const other = chat.participants.find(
+      (participant) => participant.userId !== session?.user.id
+    )
+    if (other) dmByUserId.set(other.userId, chat)
+  }
+
+  async function openDirectMessage(now: number) {
+    if (!workspaceId || !entity.userId || opening || isSelf) return
+
+    const existing = dmByUserId.get(entity.userId)
+    if (existing) {
+      navigate(`/workspace/${workspaceId}/resource/${existing.id}`)
+      return
+    }
+
+    const id = crypto.randomUUID()
+    setOpening(true)
+    setActionError(null)
+    try {
+      const result = zero.mutate(
+        mutators.humanChats.createDM({
+          id,
+          selfParticipantId: crypto.randomUUID(),
+          otherParticipantId: crypto.randomUUID(),
+          workspaceId,
+          otherUserId: entity.userId,
+          now,
+        })
+      )
+      const serverResult = await result.server
+      if (serverResult.type === "error") {
+        throw new Error(serverResult.error.message)
+      }
+      navigate(`/workspace/${workspaceId}/resource/${id}`)
+    } catch (openError) {
+      setActionError(
+        openError instanceof Error
+          ? openError.message
+          : "Could not open direct message"
+      )
+    } finally {
+      setOpening(false)
+    }
+  }
+
+  function handleAction(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    setActionError(null)
+
+    if (canOpenResource) {
+      navigate(`/workspace/${workspaceId}/resource/${entity.id}`)
+      return
+    }
+
+    if (canMessage) {
+      void openDirectMessage(
+        Math.round(performance.timeOrigin + event.timeStamp)
+      )
+    }
+  }
 
   return (
     <HoverCard>
@@ -99,9 +191,27 @@ export function EntityHoverCard({
             </p>
           </div>
         </div>
-        <div className="border-t bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
-          {footer}
+        <div className="flex items-center justify-between gap-3 border-t bg-muted/30 px-4 py-2">
+          <p className="min-w-0 truncate text-xs text-muted-foreground">
+            {footer}
+          </p>
+          {showAction && (
+            <Button
+              type="button"
+              size="xs"
+              variant="secondary"
+              disabled={opening}
+              onClick={handleAction}
+            >
+              {canOpenResource ? "Open" : opening ? "Opening…" : "Message"}
+            </Button>
+          )}
         </div>
+        {actionError && (
+          <p className="border-t px-4 py-2 text-xs text-destructive" role="alert">
+            {actionError}
+          </p>
+        )}
       </HoverCardContent>
     </HoverCard>
   )
