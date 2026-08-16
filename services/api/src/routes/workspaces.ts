@@ -1,6 +1,7 @@
 import { db, schema } from "@workspace/db"
-import { and, count, eq } from "drizzle-orm"
+import { and, count, desc, eq, lt, or } from "drizzle-orm"
 import { Elysia, t } from "elysia"
+import { recordAuditEvent, requestId } from "../lib/audit"
 import { newId } from "../lib/ids"
 import { getSessionUser } from "../lib/session"
 import { slugify } from "../lib/slug"
@@ -43,12 +44,40 @@ async function findMembership(workspaceId: string, userId: string) {
   })
 }
 
+function encodeAuditCursor(occurredAt: Date, id: string) {
+  return Buffer.from(JSON.stringify([occurredAt.toISOString(), id])).toString(
+    "base64url"
+  )
+}
+
+function decodeAuditCursor(cursor: string) {
+  try {
+    const value = JSON.parse(
+      Buffer.from(cursor, "base64url").toString("utf8")
+    ) as unknown
+    if (
+      !Array.isArray(value) ||
+      value.length !== 2 ||
+      typeof value[0] !== "string" ||
+      typeof value[1] !== "string"
+    ) {
+      return null
+    }
+    const occurredAt = new Date(value[0])
+    if (Number.isNaN(occurredAt.getTime())) return null
+    return { occurredAt, id: value[1] }
+  } catch {
+    return null
+  }
+}
+
 export const workspaceRoutes = new Elysia({ name: "workspace-routes" })
   .post(
     "/workspaces",
     async ({ body, request, set }) => {
       const sessionUser = await getSessionUser(request)
       if (!sessionUser) return unauthorized(set)
+      const auditRequestId = requestId(request)
 
       const created = await db.transaction(async (tx) => {
         const [workspace] = await tx
@@ -67,6 +96,15 @@ export const workspaceRoutes = new Elysia({ name: "workspace-routes" })
           workspaceId: workspace.id,
           userId: sessionUser.id,
           role: "owner",
+        })
+        await recordAuditEvent(tx, {
+          workspaceId: workspace.id,
+          actorId: sessionUser.id,
+          action: "workspace.created",
+          targetType: "workspace",
+          targetId: workspace.id,
+          targetLabel: workspace.name,
+          requestId: auditRequestId,
         })
 
         return workspace
@@ -131,11 +169,85 @@ export const workspaceRoutes = new Elysia({ name: "workspace-routes" })
       .innerJoin(schema.user, eq(schema.workspaceMember.userId, schema.user.id))
       .where(eq(schema.workspaceMember.workspaceId, params.id))
   })
+  .get(
+    "/workspaces/:id/audit-events",
+    async ({ params, query, request, set }) => {
+      const sessionUser = await getSessionUser(request)
+      if (!sessionUser) return unauthorized(set)
+
+      const membership = await findMembership(params.id, sessionUser.id)
+      if (!membership) return notFound(set)
+      if (membership.role !== "owner") {
+        set.status = 403
+        return { error: "Only workspace owners can view audit history" }
+      }
+
+      const cursor = query.cursor ? decodeAuditCursor(query.cursor) : undefined
+      if (query.cursor && !cursor) {
+        set.status = 400
+        return { error: "Invalid audit cursor" }
+      }
+      const requestedLimit = Number(query.limit ?? 50)
+      const limit = Number.isInteger(requestedLimit)
+        ? Math.min(Math.max(requestedLimit, 1), 100)
+        : 50
+      const cursorCondition = cursor
+        ? or(
+            lt(schema.auditEvent.occurredAt, cursor.occurredAt),
+            and(
+              eq(schema.auditEvent.occurredAt, cursor.occurredAt),
+              lt(schema.auditEvent.id, cursor.id)
+            )
+          )
+        : undefined
+
+      const rows = await db
+        .select({
+          id: schema.auditEvent.id,
+          workspaceId: schema.auditEvent.workspaceId,
+          actorId: schema.auditEvent.actorId,
+          actorName: schema.user.name,
+          actorEmail: schema.user.email,
+          action: schema.auditEvent.action,
+          targetType: schema.auditEvent.targetType,
+          targetId: schema.auditEvent.targetId,
+          targetLabel: schema.auditEvent.targetLabel,
+          changes: schema.auditEvent.changes,
+          metadata: schema.auditEvent.metadata,
+          source: schema.auditEvent.source,
+          requestId: schema.auditEvent.requestId,
+          occurredAt: schema.auditEvent.occurredAt,
+        })
+        .from(schema.auditEvent)
+        .leftJoin(schema.user, eq(schema.auditEvent.actorId, schema.user.id))
+        .where(
+          and(eq(schema.auditEvent.workspaceId, params.id), cursorCondition)
+        )
+        .orderBy(desc(schema.auditEvent.occurredAt), desc(schema.auditEvent.id))
+        .limit(limit + 1)
+
+      const hasMore = rows.length > limit
+      const events = hasMore ? rows.slice(0, limit) : rows
+      const last = events.at(-1)
+      return {
+        events,
+        nextCursor:
+          hasMore && last ? encodeAuditCursor(last.occurredAt, last.id) : null,
+      }
+    },
+    {
+      query: t.Object({
+        cursor: t.Optional(t.String()),
+        limit: t.Optional(t.String()),
+      }),
+    }
+  )
   .patch(
     "/workspaces/:id/members/:memberId",
     async ({ body, params, request, set }) => {
       const sessionUser = await getSessionUser(request)
       if (!sessionUser) return unauthorized(set)
+      const auditRequestId = requestId(request)
 
       const result = await db.transaction(async (tx) => {
         const [lockedWorkspace] = await tx
@@ -159,8 +271,19 @@ export const workspaceRoutes = new Elysia({ name: "workspace-routes" })
         if (actor.role !== "owner") return { failure: "forbidden" as const }
 
         const [target] = await tx
-          .select()
+          .select({
+            id: schema.workspaceMember.id,
+            workspaceId: schema.workspaceMember.workspaceId,
+            userId: schema.workspaceMember.userId,
+            role: schema.workspaceMember.role,
+            name: schema.user.name,
+            email: schema.user.email,
+          })
           .from(schema.workspaceMember)
+          .innerJoin(
+            schema.user,
+            eq(schema.workspaceMember.userId, schema.user.id)
+          )
           .where(
             and(
               eq(schema.workspaceMember.id, params.memberId),
@@ -191,6 +314,18 @@ export const workspaceRoutes = new Elysia({ name: "workspace-routes" })
           .where(eq(schema.workspaceMember.id, target.id))
           .returning()
         if (!updated) return { failure: "member" as const }
+        if (target.role !== updated.role) {
+          await recordAuditEvent(tx, {
+            workspaceId: params.id,
+            actorId: sessionUser.id,
+            action: "member.role_changed",
+            targetType: "member",
+            targetId: target.userId,
+            targetLabel: target.name || target.email,
+            changes: { role: { from: target.role, to: updated.role } },
+            requestId: auditRequestId,
+          })
+        }
         return { member: updated }
       })
 
@@ -211,6 +346,7 @@ export const workspaceRoutes = new Elysia({ name: "workspace-routes" })
     async ({ params, request, set }) => {
       const sessionUser = await getSessionUser(request)
       if (!sessionUser) return unauthorized(set)
+      const auditRequestId = requestId(request)
 
       const result = await db.transaction(async (tx) => {
         const [lockedWorkspace] = await tx
@@ -234,8 +370,19 @@ export const workspaceRoutes = new Elysia({ name: "workspace-routes" })
         if (actor.role !== "owner") return { failure: "forbidden" as const }
 
         const [target] = await tx
-          .select()
+          .select({
+            id: schema.workspaceMember.id,
+            workspaceId: schema.workspaceMember.workspaceId,
+            userId: schema.workspaceMember.userId,
+            role: schema.workspaceMember.role,
+            name: schema.user.name,
+            email: schema.user.email,
+          })
           .from(schema.workspaceMember)
+          .innerJoin(
+            schema.user,
+            eq(schema.workspaceMember.userId, schema.user.id)
+          )
           .where(
             and(
               eq(schema.workspaceMember.id, params.memberId),
@@ -263,6 +410,16 @@ export const workspaceRoutes = new Elysia({ name: "workspace-routes" })
         await tx
           .delete(schema.workspaceMember)
           .where(eq(schema.workspaceMember.id, target.id))
+        await recordAuditEvent(tx, {
+          workspaceId: params.id,
+          actorId: sessionUser.id,
+          action: "member.removed",
+          targetType: "member",
+          targetId: target.userId,
+          targetLabel: target.name || target.email,
+          metadata: { role: target.role },
+          requestId: auditRequestId,
+        })
         return { deleted: target.id }
       })
 

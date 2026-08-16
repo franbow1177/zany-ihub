@@ -21,6 +21,7 @@ import {
 } from "@workspace/ui/components/sidebar"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 
+import { AppLogo } from "@/components/app-logo"
 import type { Workspace } from "@/lib/api"
 
 function workspaceInitial(name: string) {
@@ -40,12 +41,9 @@ export function WorkspacesDropdown({
 
   if (isLoading && !workspace) {
     return (
-      <div className="flex h-12 items-center gap-2 px-2">
-        <Skeleton className="size-8 shrink-0 rounded-lg" />
-        <div className="grid flex-1 gap-1">
-          <Skeleton className="h-3.5 w-24" />
-          <Skeleton className="h-3 w-16" />
-        </div>
+      <div className="flex h-8 items-center gap-2 px-2">
+        <Skeleton className="size-4 shrink-0 rounded-sm" />
+        <Skeleton className="h-3.5 w-24 flex-1" />
       </div>
     )
   }
@@ -56,22 +54,12 @@ export function WorkspacesDropdown({
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              <SidebarMenuButton
-                size="lg"
-                className="data-popup-open:bg-sidebar-accent"
-              />
+              <SidebarMenuButton className="data-popup-open:bg-sidebar-accent" />
             }
           >
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary font-semibold text-primary-foreground">
-              {workspace ? workspaceInitial(workspace.name) : "W"}
-            </span>
-            <span className="grid min-w-0 flex-1 text-left leading-tight">
-              <span className="truncate font-medium">
-                {workspace?.name ?? "Select workspace"}
-              </span>
-              <span className="truncate text-xs text-sidebar-foreground/60">
-                {workspace?.slug ?? "Workspace"}
-              </span>
+            <AppLogo className="size-4" />
+            <span className="min-w-0 flex-1 truncate text-left font-medium">
+              {workspace?.name ?? "Select workspace"}
             </span>
             <HugeiconsIcon
               icon={ArrowDown01Icon}

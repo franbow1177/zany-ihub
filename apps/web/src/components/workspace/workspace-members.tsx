@@ -3,7 +3,6 @@ import {
   Add01Icon,
   Delete02Icon,
   Link01Icon,
-  UserGroupIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
@@ -42,6 +41,7 @@ import {
   type WorkspaceMember,
 } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
+import { WORKSPACE_NAV_CONFIG } from "@/lib/resource-kind"
 
 function initials(name: string, email: string) {
   const value = name.trim() || email.trim()
@@ -277,7 +277,7 @@ export function InviteMemberDialog({ workspaceId }: { workspaceId: string }) {
                   </Button>
                   <Button
                     type="button"
-                    size="icon-sm"
+                    size="icon"
                     variant="ghost"
                     aria-label={`Revoke invitation for ${invitation.email}`}
                     title="Revoke invitation"
@@ -340,7 +340,10 @@ export function WorkspaceMembers({
               )}
             </AvatarGroup>
           ) : (
-            <HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />
+            <HugeiconsIcon
+              icon={WORKSPACE_NAV_CONFIG.members.icon}
+              strokeWidth={2}
+            />
           )}
           <span className="hidden text-xs text-muted-foreground sm:inline">
             {members.length}

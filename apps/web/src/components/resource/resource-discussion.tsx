@@ -1,44 +1,287 @@
-import { useState } from "react"
-import { BubbleChatAddIcon, Comment01Icon } from "@hugeicons/core-free-icons"
+import { useMemo, useState } from "react"
+import {
+  Add01Icon,
+  Comment01Icon,
+  Edit02Icon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useQuery, useZero } from "@rocicorp/zero/react"
 import { mutators } from "@workspace/zero/mutators"
 import { queries } from "@workspace/zero/queries"
 import { Button } from "@workspace/ui/components/button"
+import { ButtonGroup } from "@workspace/ui/components/button-group"
 import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@workspace/ui/components/sheet"
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@workspace/ui/components/tabs"
 
-import type { Resource } from "@/lib/api"
+import type { Resource, WorkspaceMember } from "@/lib/api"
+import { RESOURCE_KIND_CONFIG } from "@/lib/resource-kind"
 import { ChatConversation } from "./resource-content-chat"
+import { ResourceContentAiChat } from "./resource-content-ai-chat"
+import { ResourceFormSheet } from "./resource-form-sheet"
+import { ResourceKindIcon } from "./resource-kind-icon"
 
-function DiscussionPanelContent({ resource }: { resource: Resource }) {
+export type DiscussionMode = "threads" | "ai"
+
+const AI_ABOUT_PREFIX = "about:"
+
+function aiAboutDescription(resourceId: string) {
+  return `${AI_ABOUT_PREFIX}${resourceId}`
+}
+
+function ThreadTab({
+  thread,
+  workspaceId,
+  resources,
+  members,
+}: {
+  thread: Resource
+  workspaceId: string
+  resources: Resource[]
+  members: WorkspaceMember[]
+}) {
+  const [editOpen, setEditOpen] = useState(false)
+
+  return (
+    <div className="group/thread-tab relative min-w-0 shrink-0">
+      <TabsTrigger value={thread.id} className="max-w-44 gap-1.5">
+        <span className="relative grid size-4 shrink-0 place-items-center">
+          <ResourceKindIcon
+            kind={thread.kind}
+            icon={thread.icon}
+            className="size-4 transition-opacity group-hover/thread-tab:pointer-events-none group-hover/thread-tab:opacity-0"
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            title={`Edit ${thread.name}`}
+            aria-label={`Edit ${thread.name}`}
+            className="absolute inset-0 size-4 rounded-sm p-0 opacity-0 transition-opacity group-hover/thread-tab:opacity-100 focus-visible:opacity-100"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              setEditOpen(true)
+            }}
+          >
+            <HugeiconsIcon
+              icon={Edit02Icon}
+              className="size-3.5"
+              strokeWidth={2}
+            />
+          </Button>
+        </span>
+        <span className="truncate">{thread.name}</span>
+      </TabsTrigger>
+      <ResourceFormSheet
+        workspaceId={workspaceId}
+        resources={resources}
+        members={members}
+        resource={thread}
+        trigger={null}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+      />
+    </div>
+  )
+}
+
+export function ResourceDiscussionButtonGroup({
+  resource,
+  resources,
+  workspaceId,
+  open,
+  mode,
+  onOpenChange,
+  onModeChange,
+  onAiChatIdChange,
+}: {
+  resource: Resource
+  resources: Resource[]
+  workspaceId: string
+  open: boolean
+  mode: DiscussionMode
+  onOpenChange: (open: boolean) => void
+  onModeChange: (mode: DiscussionMode) => void
+  onAiChatIdChange: (aiChatId: string) => void
+}) {
   const zero = useZero()
-  const [thread, threadState] = useQuery(
+  const [isCreatingAi, setIsCreatingAi] = useState(false)
+
+  function toggleThreads() {
+    if (open && mode === "threads") {
+      onOpenChange(false)
+      return
+    }
+    onModeChange("threads")
+    onOpenChange(true)
+  }
+
+  async function openAiChat() {
+    if (isCreatingAi) return
+
+    const about = aiAboutDescription(resource.id)
+    const existing = resources.find(
+      (item) => item.kind === "ai-chat" && item.description === about
+    )
+    if (existing) {
+      onAiChatIdChange(existing.id)
+      onModeChange("ai")
+      onOpenChange(true)
+      return
+    }
+
+    const id = crypto.randomUUID()
+    setIsCreatingAi(true)
+    try {
+      const result = zero.mutate(
+        mutators.resources.create({
+          id,
+          workspaceId,
+          parentId:
+            resource.kind === "folder" ? resource.id : resource.parentId,
+          kind: "ai-chat",
+          name: `AI · ${resource.name}`,
+          description: about,
+          icon: null,
+          bookmark: null,
+          channelParticipants: null,
+          now: Date.now(),
+        })
+      )
+      const serverResult = await result.server
+      if (serverResult.type === "error") {
+        throw new Error(serverResult.error.message)
+      }
+      onAiChatIdChange(id)
+      onModeChange("ai")
+      onOpenChange(true)
+    } finally {
+      setIsCreatingAi(false)
+    }
+  }
+
+  return (
+    <ButtonGroup>
+      <Button
+        type="button"
+        variant={open && mode === "threads" ? "default" : "secondary"}
+        size="icon"
+        aria-label="Threads"
+        title="Threads"
+        aria-pressed={open && mode === "threads"}
+        onClick={toggleThreads}
+      >
+        <HugeiconsIcon icon={Comment01Icon} className="size-4" strokeWidth={2} />
+      </Button>
+      <Button
+        type="button"
+        variant={open && mode === "ai" ? "default" : "secondary"}
+        size="icon"
+        aria-label="AI chat"
+        title="AI chat"
+        aria-pressed={open && mode === "ai"}
+        disabled={isCreatingAi}
+        onClick={() => void openAiChat()}
+      >
+        <HugeiconsIcon
+          icon={RESOURCE_KIND_CONFIG["ai-chat"].icon}
+          className="size-4"
+          strokeWidth={2}
+        />
+      </Button>
+    </ButtonGroup>
+  )
+}
+
+function DiscussionAiPanel({
+  aiChatId,
+  resources,
+}: {
+  aiChatId: string
+  resources: Resource[]
+}) {
+  const aiResource = useMemo(
+    () => resources.find((item) => item.id === aiChatId),
+    [aiChatId, resources]
+  )
+  const [resourceRow] = useQuery(queries.resources.byID({ id: aiChatId }), {
+    enabled: !aiResource,
+  })
+  const resource =
+    aiResource ??
+    (resourceRow
+      ? ({
+          id: resourceRow.id,
+          workspaceId: resourceRow.workspaceId,
+          parentId: resourceRow.parentId,
+          kind: resourceRow.kind,
+          name: resourceRow.name,
+          description: resourceRow.description,
+          icon: resourceRow.icon,
+          createdBy: resourceRow.createdBy,
+          createdAt: resourceRow.createdAt,
+          updatedAt: resourceRow.updatedAt,
+          file: null,
+        } as Resource)
+      : null)
+
+  if (!resource || resource.kind !== "ai-chat") {
+    return (
+      <div className="grid h-full min-h-64 place-items-center text-sm text-muted-foreground">
+        Starting AI chat…
+      </div>
+    )
+  }
+
+  return <ResourceContentAiChat resource={resource} compact />
+}
+
+export function ResourceDiscussionPanel({
+  resource,
+  resources,
+  members,
+  workspaceId,
+  mode = "threads",
+  aiChatId = null,
+}: {
+  resource: Resource
+  resources: Resource[]
+  members: WorkspaceMember[]
+  workspaceId: string
+  mode?: DiscussionMode
+  aiChatId?: string | null
+  onClose?: () => void
+}) {
+  const zero = useZero()
+  const [threads = [], threadsState] = useQuery(
     queries.humanChats.byTarget({ id: resource.id })
   )
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const activeThreadId = threads.some(
+    (thread) => thread.id === selectedThreadId
+  )
+    ? selectedThreadId
+    : (threads.at(0)?.id ?? null)
 
-  async function createDiscussion() {
+  async function createThread() {
+    if (isCreating) return
+    const id = crypto.randomUUID()
+    const name = `Thread ${threads.length + 1}`
+    setSelectedThreadId(id)
     setIsCreating(true)
     setError(null)
     try {
       const result = zero.mutate(
         mutators.humanChats.createThread({
-          id: crypto.randomUUID(),
+          id,
           targetResourceId: resource.id,
+          name,
           now: Date.now(),
         })
       )
@@ -47,10 +290,11 @@ function DiscussionPanelContent({ resource }: { resource: Resource }) {
         throw new Error(serverResult.error.message)
       }
     } catch (createError) {
+      setSelectedThreadId(null)
       setError(
         createError instanceof Error
           ? createError.message
-          : "Could not start discussion"
+          : "Could not create thread"
       )
     } finally {
       setIsCreating(false)
@@ -58,74 +302,118 @@ function DiscussionPanelContent({ resource }: { resource: Resource }) {
   }
 
   const queryError =
-    threadState.type === "error" ? threadState.error.message : null
+    threadsState.type === "error" ? threadsState.error.message : null
 
-  if (thread?.resource) {
+  if (mode === "ai") {
     return (
-      <ChatConversation
-        chatId={thread.id}
-        resource={thread.resource as Resource}
-        compact
-      />
+      <div className="flex h-full min-h-0 flex-col bg-background p-3">
+        {aiChatId ? (
+          <DiscussionAiPanel aiChatId={aiChatId} resources={resources} />
+        ) : (
+          <div className="grid h-full min-h-64 place-items-center text-sm text-muted-foreground">
+            Starting AI chat…
+          </div>
+        )}
+      </div>
     )
   }
 
   return (
-    <div className="space-y-3 p-4 sm:p-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>No discussion yet</CardTitle>
-          <CardDescription>
-            Start a synced thread for comments and decisions about this
-            resource.
-          </CardDescription>
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <Tabs
+        value={activeThreadId ?? undefined}
+        onValueChange={(value) => setSelectedThreadId(String(value))}
+        className="min-h-0 flex-1 gap-0"
+      >
+        <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1.5">
+          <TabsList className="no-scrollbar min-w-0 flex-1 justify-start overflow-x-auto">
+            {threads.flatMap((thread) =>
+              thread.resource
+                ? [
+                    <ThreadTab
+                      key={thread.id}
+                      thread={thread.resource as Resource}
+                      workspaceId={workspaceId}
+                      resources={resources}
+                      members={members}
+                    />,
+                  ]
+                : []
+            )}
+          </TabsList>
           <Button
             type="button"
-            variant="outline"
-            className="mt-2 w-fit"
-            disabled={isCreating || threadState.type === "unknown"}
-            onClick={() => void createDiscussion()}
+            variant="ghost"
+            size="icon"
+            title="New thread"
+            aria-label="New thread"
+            disabled={isCreating}
+            onClick={() => void createThread()}
           >
-            <HugeiconsIcon icon={BubbleChatAddIcon} strokeWidth={2} />
-            {isCreating ? "Starting…" : "Start discussion"}
+            <HugeiconsIcon icon={Add01Icon} className="size-4" strokeWidth={2} />
           </Button>
-        </CardHeader>
-      </Card>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-hidden p-3">
+          {threads.length === 0 ? (
+            <div className="grid h-full min-h-64 place-items-center px-6 text-center">
+              <div>
+                <HugeiconsIcon
+                  icon={Comment01Icon}
+                  className="mx-auto mb-3 size-6 text-muted-foreground"
+                  strokeWidth={1.8}
+                />
+                <p className="font-medium">No threads yet</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Create a thread for a focused conversation about this
+                  resource.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-4"
+                  disabled={isCreating || threadsState.type === "unknown"}
+                  onClick={() => void createThread()}
+                >
+                  <HugeiconsIcon
+                    icon={Add01Icon}
+                    className="size-4"
+                    strokeWidth={2}
+                  />
+                  {isCreating ? "Creating…" : "New thread"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            threads.flatMap((thread) =>
+              thread.resource
+                ? [
+                    <TabsContent
+                      key={thread.id}
+                      value={thread.id}
+                      className="h-full min-h-0"
+                    >
+                      <ChatConversation
+                        chatId={thread.id}
+                        resource={thread.resource as Resource}
+                        compact
+                      />
+                    </TabsContent>,
+                  ]
+                : []
+            )
+          )}
+        </div>
+      </Tabs>
 
       {(error || queryError) && (
-        <p className="text-sm text-destructive" role="alert">
+        <p
+          className="shrink-0 border-t px-3 py-2 text-xs text-destructive"
+          role="alert"
+        >
           {error || queryError}
         </p>
       )}
     </div>
-  )
-}
-
-export function ResourceDiscussionPanel({ resource }: { resource: Resource }) {
-  return (
-    <Sheet>
-      <SheetTrigger
-        render={
-          <Button type="button" variant="ghost" size="sm">
-            <HugeiconsIcon icon={Comment01Icon} strokeWidth={2} />
-            <span className="hidden sm:inline">Discussion</span>
-          </Button>
-        }
-      />
-      <SheetContent side="right" className="gap-0 sm:max-w-xl">
-        <SheetHeader className="border-b px-5 py-4 pr-14">
-          <SheetTitle className="flex items-center gap-2">
-            <HugeiconsIcon icon={Comment01Icon} strokeWidth={2} />
-            Discussion
-          </SheetTitle>
-          <SheetDescription>
-            Comments and decisions attached to {resource.name}.
-          </SheetDescription>
-        </SheetHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
-          <DiscussionPanelContent resource={resource} />
-        </div>
-      </SheetContent>
-    </Sheet>
   )
 }

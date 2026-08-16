@@ -1,14 +1,12 @@
 import { mustGetMutator, mustGetQuery } from "@rocicorp/zero"
-import {
-  handleMutateRequest,
-  handleQueryRequest,
-} from "@rocicorp/zero/server"
+import { handleMutateRequest, handleQueryRequest } from "@rocicorp/zero/server"
 import { mutators } from "@workspace/zero/mutators"
 import { queries } from "@workspace/zero/queries"
 import { schema } from "@workspace/zero/schema"
 import { Elysia } from "elysia"
 
 import { isKnownAiModel } from "../lib/ai-models"
+import { requestId } from "../lib/audit"
 import { getSessionUser } from "../lib/session"
 import { dbProvider } from "../zero/db-provider"
 
@@ -47,7 +45,7 @@ export const zeroRoutes = new Elysia({ name: "zero-routes" })
   .post("/api/zero/query", async ({ request }) => {
     const sessionUser = await getSessionUser(request)
     if (!sessionUser) return unauthorized()
-    const ctx = { userID: sessionUser.id }
+    const ctx = { userID: sessionUser.id, requestID: requestId(request) }
 
     const result = await handleQueryRequest({
       handler: (name, args) => {
@@ -64,7 +62,7 @@ export const zeroRoutes = new Elysia({ name: "zero-routes" })
   .post("/api/zero/mutate", async ({ request }) => {
     const sessionUser = await getSessionUser(request)
     if (!sessionUser) return unauthorized()
-    const ctx = { userID: sessionUser.id }
+    const ctx = { userID: sessionUser.id, requestID: requestId(request) }
 
     const result = await handleMutateRequest({
       dbProvider,

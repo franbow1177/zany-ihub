@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react"
 import { File01Icon, Loading03Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Badge } from "@workspace/ui/components/badge"
-import { Card, CardContent } from "@workspace/ui/components/card"
 import {
   Empty,
   EmptyDescription,
@@ -12,6 +10,7 @@ import {
 } from "@workspace/ui/components/empty"
 
 import { downloadUrl, type Resource } from "@/lib/api"
+import { ResourcePageHeader } from "./resource-page-header"
 
 type Preview =
   | { status: "empty" }
@@ -185,26 +184,17 @@ export function ResourceContentFile({ resource }: { resource: Resource }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="mb-1 text-sm text-muted-foreground">File preview</p>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-            {resource.file?.originalName || resource.name}
-          </h1>
-        </div>
-        <Badge variant={uploaded ? "secondary" : "outline"}>
-          {uploaded ? "Preview" : "Awaiting file"}
-        </Badge>
-      </div>
+      <ResourcePageHeader
+        resource={resource}
+        title={resource.file?.originalName || resource.name}
+      />
 
-      <Card className="gap-0 overflow-hidden py-0">
-        <CardContent className="p-0">
-          <FilePreview
-            preview={preview}
-            name={resource.file?.originalName || resource.name}
-          />
-        </CardContent>
-      </Card>
+      <div className="overflow-hidden">
+        <FilePreview
+          preview={preview}
+          name={resource.file?.originalName || resource.name}
+        />
+      </div>
     </div>
   )
 }

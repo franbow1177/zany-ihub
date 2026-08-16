@@ -5,10 +5,26 @@ import { queries } from "@workspace/zero/queries"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 
 import { ResourceContent } from "@/components/resource/resource-content"
-import { WorkspaceShell } from "@/components/workspace/workspace-shell"
+import {
+  WorkspaceShell,
+  type WorkspaceContentSize,
+} from "@/components/workspace/workspace-shell"
 import { useWorkspaceShellData } from "@/hooks/use-workspace-shell-data"
-import type { Resource } from "@/lib/api"
+import type { Resource, ResourceKind } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
+
+const RESOURCE_CONTENT_SIZE: Record<ResourceKind, WorkspaceContentSize> = {
+  folder: "default",
+  file: "default",
+  doc: "narrow",
+  table: "full",
+  whiteboard: "full",
+  project: "full",
+  bookmark: "default",
+  agent: "default",
+  "ai-chat": "default",
+  chat: "narrow",
+}
 
 export function ResourcePage() {
   const { workspaceId = "", resourceId = "" } = useParams()
@@ -69,8 +85,13 @@ export function ResourcePage() {
       resources={shell.resources}
       members={shell.members}
       activeResourceId={resourceId}
+      contentSize={
+        activeResource ? RESOURCE_CONTENT_SIZE[activeResource.kind] : "default"
+      }
       discussionResource={
-        activeResource?.kind !== "chat" ? activeResource ?? undefined : undefined
+        activeResource?.kind !== "chat"
+          ? (activeResource ?? undefined)
+          : undefined
       }
       isLoading={shell.isLoading}
       onResourceUpdated={() => shell.reload()}

@@ -24,6 +24,64 @@ const resourceKind = z.enum([
 ])
 const projectStatus = z.enum(["active", "completed", "archived"])
 const taskStatus = z.enum(["todo", "in_progress", "done"])
+const tableColumnKind = z.enum([
+  "text",
+  "number",
+  "checkbox",
+  "date",
+  "select",
+  "multi-select",
+  "mention",
+])
+const tableCell = z.union([
+  z.string().max(100_000),
+  z.number().finite(),
+  z.boolean(),
+  z.array(z.string().max(1_000)).max(100),
+  z.null(),
+])
+const tableColumn = z.object({
+  id: z.string().min(1).max(200),
+  name: z.string().trim().min(1).max(500),
+  kind: tableColumnKind,
+  options: z.array(z.string().max(1_000)).max(100).optional(),
+})
+const tableRow = z
+  .object({ id: z.string().min(1).max(200) })
+  .catchall(tableCell)
+const tableData = z.object({
+  version: z.literal(1),
+  columns: z.array(tableColumn).max(200),
+  rows: z.array(tableRow).max(10_000),
+})
+
+const defaultTableColumns = [
+  { id: "name", name: "Name", kind: "text" as const },
+  {
+    id: "status",
+    name: "Status",
+    kind: "select" as const,
+    options: ["Not started", "In progress", "Done"],
+  },
+  { id: "owner", name: "Owner", kind: "text" as const },
+  { id: "updated", name: "Date", kind: "date" as const },
+]
+
+function initialTableData(resourceId: string) {
+  return {
+    version: 1 as const,
+    columns: defaultTableColumns,
+    rows: [
+      {
+        id: `${resourceId}-row-1`,
+        name: "",
+        status: "Not started",
+        owner: "",
+        updated: "",
+      },
+    ],
+  }
+}
 
 function requireUser(ctx: ZeroContext | undefined) {
   if (!ctx) throw new Error("Unauthorized")
@@ -96,6 +154,40 @@ function timestamp<TWrappedTransaction>(
   return tx.location === "server" ? Date.now() : optimisticNow
 }
 
+type ZeroAuditEvent = {
+  workspaceId: string
+  action: string
+  targetType: string
+  targetId?: string | null
+  targetLabel?: string | null
+  changes?: Record<string, unknown>
+  metadata?: Record<string, unknown>
+}
+
+async function recordAuditEvent<TWrappedTransaction>(
+  tx: Transaction<Schema, TWrappedTransaction>,
+  ctx: ZeroContext | undefined,
+  event: ZeroAuditEvent
+) {
+  if (tx.location !== "server") return
+
+  await tx.mutate.auditEvent.insert({
+    id: crypto.randomUUID(),
+    workspaceId: event.workspaceId,
+    actorId: requireUser(ctx),
+    action: event.action,
+    targetType: event.targetType,
+    targetId: event.targetId ?? null,
+    targetLabel: event.targetLabel ?? null,
+    changes: event.changes ?? {},
+    metadata: event.metadata ?? {},
+    source: "zero",
+    requestId: ctx?.requestID ?? null,
+    operationId: null,
+    occurredAt: Date.now(),
+  })
+}
+
 function slugify(name: string, id: string) {
   const base = name
     .toLowerCase()
@@ -129,6 +221,49 @@ const channelParticipant = z.object({
   id: z.string().min(1),
   userId: z.string().min(1),
 })
+const teamMemberInput = z.object({
+  id: z.string().min(1),
+  userId: z.string().min(1),
+})
+
+function assertUniqueTeamMembers(
+  members: ReadonlyArray<z.infer<typeof teamMemberInput>>
+) {
+  if (new Set(members.map((member) => member.userId)).size !== members.length) {
+    throw new Error("A member can only appear once in a team")
+  }
+}
+
+async function assertTeamMembersInWorkspace<TWrappedTransaction>(
+  tx: Transaction<Schema, TWrappedTransaction>,
+  workspaceId: string,
+  members: ReadonlyArray<z.infer<typeof teamMemberInput>>
+) {
+  if (tx.location === "client") return
+  for (const member of members) {
+    const workspaceMember = await tx.run(
+      zql.workspaceMember
+        .where("workspaceId", workspaceId)
+        .where("userId", member.userId)
+        .one()
+    )
+    if (!workspaceMember) {
+      throw new Error("Team members must belong to the workspace")
+    }
+  }
+}
+
+async function getAuthorizedTeam<TWrappedTransaction>(
+  tx: Transaction<Schema, TWrappedTransaction>,
+  ctx: ZeroContext | undefined,
+  teamId: string
+) {
+  requireUser(ctx)
+  const existingTeam = await tx.run(zql.team.where("id", teamId).one())
+  if (!existingTeam) throw new Error("Team not found")
+  await assertWorkspaceAccess(tx, ctx, existingTeam.workspaceId)
+  return existingTeam
+}
 
 export const mutators = defineMutators({
   workspaces: {
@@ -156,6 +291,105 @@ export const mutators = defineMutators({
           role: "owner",
           createdAt: now,
         })
+        await recordAuditEvent(tx, ctx, {
+          workspaceId: args.id,
+          action: "workspace.created",
+          targetType: "workspace",
+          targetId: args.id,
+          targetLabel: args.name,
+        })
+      }
+    ),
+  },
+  teams: {
+    create: defineMutator(
+      z.object({
+        id: z.string().min(1),
+        workspaceId: z.string().min(1),
+        name: z.string().trim().min(1).max(160),
+        description: z.string().nullable(),
+        members: z.array(teamMemberInput),
+        now: z.number().int().nonnegative(),
+      }),
+      async ({ tx, ctx, args }) => {
+        await assertWorkspaceAccess(tx, ctx, args.workspaceId)
+        assertUniqueTeamMembers(args.members)
+        await assertTeamMembersInWorkspace(tx, args.workspaceId, args.members)
+        const now = timestamp(tx, args.now)
+
+        await tx.mutate.team.insert({
+          id: args.id,
+          workspaceId: args.workspaceId,
+          name: args.name,
+          description: args.description?.trim() || null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        for (const member of args.members) {
+          await tx.mutate.teamMember.insert({
+            id: member.id,
+            teamId: args.id,
+            userId: member.userId,
+            createdAt: now,
+          })
+        }
+      }
+    ),
+    update: defineMutator(
+      z.object({
+        id: z.string().min(1),
+        name: z.string().trim().min(1).max(160),
+        description: z.string().nullable(),
+        members: z.array(teamMemberInput),
+        now: z.number().int().nonnegative(),
+      }),
+      async ({ tx, ctx, args }) => {
+        const existingTeam = await getAuthorizedTeam(tx, ctx, args.id)
+        assertUniqueTeamMembers(args.members)
+        await assertTeamMembersInWorkspace(
+          tx,
+          existingTeam.workspaceId,
+          args.members
+        )
+        const now = timestamp(tx, args.now)
+        const currentMembers = await tx.run(
+          zql.teamMember.where("teamId", args.id)
+        )
+        const desiredUserIds = new Set(
+          args.members.map((member) => member.userId)
+        )
+        const currentUserIds = new Set(
+          currentMembers.map((member) => member.userId)
+        )
+
+        await tx.mutate.team.update({
+          id: args.id,
+          name: args.name,
+          description: args.description?.trim() || null,
+          updatedAt: now,
+        })
+        for (const member of currentMembers) {
+          if (!desiredUserIds.has(member.userId)) {
+            await tx.mutate.teamMember.delete({ id: member.id })
+          }
+        }
+        for (const member of args.members) {
+          if (!currentUserIds.has(member.userId)) {
+            await tx.mutate.teamMember.insert({
+              id: member.id,
+              teamId: args.id,
+              userId: member.userId,
+              createdAt: now,
+            })
+          }
+        }
+      }
+    ),
+    delete: defineMutator(
+      z.object({ id: z.string().min(1) }),
+      async ({ tx, ctx, args }) => {
+        await getAuthorizedTeam(tx, ctx, args.id)
+        await tx.mutate.team.delete({ id: args.id })
       }
     ),
   },
@@ -245,7 +479,21 @@ export const mutators = defineMutators({
           updatedAt: now,
         })
 
-        if (args.kind === "file") {
+        if (args.kind === "doc") {
+          await tx.mutate.resourceDocument.insert({
+            id: args.id,
+            content: "",
+            createdAt: now,
+            updatedAt: now,
+          })
+        } else if (args.kind === "table") {
+          await tx.mutate.resourceTable.insert({
+            id: args.id,
+            data: initialTableData(args.id),
+            createdAt: now,
+            updatedAt: now,
+          })
+        } else if (args.kind === "file") {
           await tx.mutate.resourceFile.insert({
             id: args.id,
             mimeType: null,
@@ -318,6 +566,14 @@ export const mutators = defineMutators({
             })
           }
         }
+        await recordAuditEvent(tx, ctx, {
+          workspaceId: args.workspaceId,
+          action: "resource.created",
+          targetType: "resource",
+          targetId: args.id,
+          targetLabel: args.name,
+          metadata: { kind: args.kind, parentId: args.parentId },
+        })
       }
     ),
     update: defineMutator(
@@ -336,8 +592,11 @@ export const mutators = defineMutators({
           const chat = await tx.run(
             zql.resourceChat.where("id", resource.id).one()
           )
-          if (!chat || chat.type !== "channel") {
-            throw new Error("Only channels have editable resource settings")
+          if (!chat || chat.type === "dm") {
+            throw new Error("Direct messages do not have editable settings")
+          }
+          if (chat.type === "thread" && args.parentId) {
+            throw new Error("Attached threads cannot move into folders")
           }
         }
 
@@ -379,6 +638,93 @@ export const mutators = defineMutators({
           icon: args.icon === undefined ? undefined : args.icon?.trim() || null,
           updatedAt: timestamp(tx, args.now),
         })
+        if (args.name !== undefined && args.name !== resource.name) {
+          await recordAuditEvent(tx, ctx, {
+            workspaceId: resource.workspaceId,
+            action: "resource.renamed",
+            targetType: "resource",
+            targetId: resource.id,
+            targetLabel: args.name,
+            changes: { name: { from: resource.name, to: args.name } },
+            metadata: { kind: resource.kind },
+          })
+        }
+        if (
+          args.parentId !== undefined &&
+          args.parentId !== resource.parentId
+        ) {
+          await recordAuditEvent(tx, ctx, {
+            workspaceId: resource.workspaceId,
+            action: "resource.moved",
+            targetType: "resource",
+            targetId: resource.id,
+            targetLabel: args.name ?? resource.name,
+            changes: {
+              parentId: { from: resource.parentId, to: args.parentId },
+            },
+            metadata: { kind: resource.kind },
+          })
+        }
+        const metadataFields = [
+          args.description !== undefined ? "description" : null,
+          args.icon !== undefined ? "icon" : null,
+        ].filter((field): field is string => field !== null)
+        if (metadataFields.length > 0) {
+          await recordAuditEvent(tx, ctx, {
+            workspaceId: resource.workspaceId,
+            action: "resource.metadata_changed",
+            targetType: "resource",
+            targetId: resource.id,
+            targetLabel: args.name ?? resource.name,
+            metadata: { kind: resource.kind, fields: metadataFields },
+          })
+        }
+      }
+    ),
+  },
+  documents: {
+    update: defineMutator(
+      z.object({
+        id: z.string().min(1),
+        content: z.string().max(2_000_000),
+        now: z.number().int().nonnegative(),
+      }),
+      async ({ tx, ctx, args }) => {
+        const resource = await getAuthorizedResource(tx, ctx, args.id)
+        if (resource.kind !== "doc") throw new Error("Not a document")
+        const document = await tx.run(
+          zql.resourceDocument.where("id", args.id).one()
+        )
+        if (!document) throw new Error("Document content not found")
+        const now = timestamp(tx, args.now)
+        await tx.mutate.resourceDocument.update({
+          id: args.id,
+          content: args.content,
+          updatedAt: now,
+        })
+        await touchResource(tx, args.id, now)
+      }
+    ),
+  },
+  tables: {
+    update: defineMutator(
+      z.object({
+        id: z.string().min(1),
+        data: tableData,
+        now: z.number().int().nonnegative(),
+      }),
+      async ({ tx, ctx, args }) => {
+        const resource = await getAuthorizedResource(tx, ctx, args.id)
+        if (resource.kind !== "table") throw new Error("Not a table")
+        const table = await tx.run(zql.resourceTable.where("id", args.id).one())
+        if (!table) throw new Error("Table content not found")
+        const now = timestamp(tx, args.now)
+        await tx.mutate.resourceTable.update({
+          id: args.id,
+          data: args.data,
+          updatedAt: now,
+        })
+        await touchResource(tx, args.id, now)
       }
     ),
   },
@@ -392,6 +738,10 @@ export const mutators = defineMutators({
       async ({ tx, ctx, args }) => {
         const resource = await getAuthorizedResource(tx, ctx, args.id)
         if (resource.kind !== "project") throw new Error("Not a project")
+        const project = await tx.run(
+          zql.resourceProject.where("id", args.id).one()
+        )
+        if (!project) throw new Error("Project content not found")
         const now = timestamp(tx, args.now)
         await tx.mutate.resourceProject.update({
           id: args.id,
@@ -399,6 +749,16 @@ export const mutators = defineMutators({
           updatedAt: now,
         })
         await touchResource(tx, args.id, now)
+        if (project.status !== args.status) {
+          await recordAuditEvent(tx, ctx, {
+            workspaceId: resource.workspaceId,
+            action: "project.status_changed",
+            targetType: "resource",
+            targetId: resource.id,
+            targetLabel: resource.name,
+            changes: { status: { from: project.status, to: args.status } },
+          })
+        }
       }
     ),
   },
@@ -430,6 +790,14 @@ export const mutators = defineMutators({
           updatedAt: now,
         })
         await touchResource(tx, args.projectId, now)
+        await recordAuditEvent(tx, ctx, {
+          workspaceId: resource.workspaceId,
+          action: "task.created",
+          targetType: "task",
+          targetId: args.id,
+          targetLabel: args.title,
+          metadata: { projectId: args.projectId, status: args.status },
+        })
       }
     ),
     update: defineMutator(
@@ -444,7 +812,7 @@ export const mutators = defineMutators({
       async ({ tx, ctx, args }) => {
         const task = await tx.run(zql.projectTask.where("id", args.id).one())
         if (!task) throw new Error("Task not found")
-        await getAuthorizedResource(tx, ctx, task.projectId)
+        const resource = await getAuthorizedResource(tx, ctx, task.projectId)
         const now = timestamp(tx, args.now)
         await tx.mutate.projectTask.update({
           id: args.id,
@@ -458,6 +826,17 @@ export const mutators = defineMutators({
           updatedAt: now,
         })
         await touchResource(tx, task.projectId, now)
+        if (args.status !== undefined && args.status !== task.status) {
+          await recordAuditEvent(tx, ctx, {
+            workspaceId: resource.workspaceId,
+            action: "task.status_changed",
+            targetType: "task",
+            targetId: task.id,
+            targetLabel: args.title ?? task.title,
+            changes: { status: { from: task.status, to: args.status } },
+            metadata: { projectId: task.projectId },
+          })
+        }
       }
     ),
     delete: defineMutator(
@@ -465,9 +844,17 @@ export const mutators = defineMutators({
       async ({ tx, ctx, args }) => {
         const task = await tx.run(zql.projectTask.where("id", args.id).one())
         if (!task) throw new Error("Task not found")
-        await getAuthorizedResource(tx, ctx, task.projectId)
+        const resource = await getAuthorizedResource(tx, ctx, task.projectId)
         await tx.mutate.projectTask.delete({ id: args.id })
         await touchResource(tx, task.projectId, timestamp(tx, args.now))
+        await recordAuditEvent(tx, ctx, {
+          workspaceId: resource.workspaceId,
+          action: "task.deleted",
+          targetType: "task",
+          targetId: task.id,
+          targetLabel: task.title,
+          metadata: { projectId: task.projectId },
+        })
       }
     ),
   },
@@ -481,6 +868,10 @@ export const mutators = defineMutators({
       async ({ tx, ctx, args }) => {
         const resource = await getAuthorizedResource(tx, ctx, args.id)
         if (resource.kind !== "bookmark") throw new Error("Not a bookmark")
+        const bookmark = await tx.run(
+          zql.resourceBookmark.where("id", args.id).one()
+        )
+        if (!bookmark) throw new Error("Bookmark content not found")
         if (args.target.type === "resource") {
           if (args.target.resourceId === args.id) {
             throw new Error("A bookmark cannot target itself")
@@ -503,6 +894,19 @@ export const mutators = defineMutators({
           updatedAt: now,
         })
         await touchResource(tx, args.id, now)
+        await recordAuditEvent(tx, ctx, {
+          workspaceId: resource.workspaceId,
+          action: "bookmark.target_changed",
+          targetType: "resource",
+          targetId: resource.id,
+          targetLabel: resource.name,
+          changes: {
+            targetType: {
+              from: bookmark.targetResourceId ? "resource" : "url",
+              to: args.target.type,
+            },
+          },
+        })
       }
     ),
   },
@@ -518,6 +922,8 @@ export const mutators = defineMutators({
       async ({ tx, ctx, args }) => {
         const resource = await getAuthorizedResource(tx, ctx, args.id)
         if (resource.kind !== "agent") throw new Error("Not an agent")
+        const agent = await tx.run(zql.resourceAgent.where("id", args.id).one())
+        if (!agent) throw new Error("Agent content not found")
         const now = timestamp(tx, args.now)
         await tx.mutate.resourceAgent.update({
           id: args.id,
@@ -533,6 +939,27 @@ export const mutators = defineMutators({
           updatedAt: now,
         })
         await touchResource(tx, args.id, now)
+        const fields = [
+          args.model !== undefined && args.model !== agent.model
+            ? "model"
+            : null,
+          args.persona !== undefined ? "persona" : null,
+          args.systemPrompt !== undefined ? "systemPrompt" : null,
+        ].filter((field): field is string => field !== null)
+        if (fields.length > 0) {
+          await recordAuditEvent(tx, ctx, {
+            workspaceId: resource.workspaceId,
+            action: "agent.configuration_changed",
+            targetType: "resource",
+            targetId: resource.id,
+            targetLabel: resource.name,
+            changes:
+              args.model !== undefined && args.model !== agent.model
+                ? { model: { from: agent.model, to: args.model } }
+                : {},
+            metadata: { fields },
+          })
+        }
       }
     ),
   },
@@ -549,6 +976,8 @@ export const mutators = defineMutators({
       async ({ tx, ctx, args }) => {
         const resource = await getAuthorizedResource(tx, ctx, args.id)
         if (resource.kind !== "ai-chat") throw new Error("Not an AI chat")
+        const chat = await tx.run(zql.resourceAiChat.where("id", args.id).one())
+        if (!chat) throw new Error("AI chat content not found")
         if (tx.location === "server" && args.target.type === "agent") {
           const agent = await tx.run(
             zql.resource.where("id", args.target.agentId).one()
@@ -569,6 +998,24 @@ export const mutators = defineMutators({
           updatedAt: now,
         })
         await touchResource(tx, args.id, now)
+        await recordAuditEvent(tx, ctx, {
+          workspaceId: resource.workspaceId,
+          action: "ai_chat.target_changed",
+          targetType: "resource",
+          targetId: resource.id,
+          targetLabel: resource.name,
+          changes: {
+            target: {
+              from: chat.agentId
+                ? { type: "agent", id: chat.agentId }
+                : { type: "model", id: chat.model },
+              to:
+                args.target.type === "agent"
+                  ? { type: "agent", id: args.target.agentId }
+                  : { type: "model", id: args.target.model },
+            },
+          },
+        })
       }
     ),
   },
@@ -642,6 +1089,22 @@ export const mutators = defineMutators({
         }
         await tx.mutate.resourceChat.update({ id: args.id, updatedAt: now })
         await touchResource(tx, args.id, now)
+        const addedUserIds = args.participants
+          .map((participant) => participant.userId)
+          .filter((userId) => !existingByUser.has(userId))
+        const removedUserIds = existing
+          .map((participant) => participant.userId)
+          .filter((userId) => !desiredByUser.has(userId))
+        if (addedUserIds.length > 0 || removedUserIds.length > 0) {
+          await recordAuditEvent(tx, ctx, {
+            workspaceId: resource.workspaceId,
+            action: "channel.participants_changed",
+            targetType: "resource",
+            targetId: resource.id,
+            targetLabel: resource.name,
+            changes: { addedUserIds, removedUserIds },
+          })
+        }
       }
     ),
     createDM: defineMutator(
@@ -708,6 +1171,14 @@ export const mutators = defineMutators({
           userId: userID,
           joinedAt: now,
         })
+        await recordAuditEvent(tx, ctx, {
+          workspaceId: args.workspaceId,
+          action: "resource.created",
+          targetType: "resource",
+          targetId: args.id,
+          targetLabel: "Direct message",
+          metadata: { kind: "chat", chatType: "dm" },
+        })
         await tx.mutate.chatParticipant.insert({
           id: args.otherParticipantId,
           chatId: args.id,
@@ -720,6 +1191,7 @@ export const mutators = defineMutators({
       z.object({
         id: z.string().min(1),
         targetResourceId: z.string().min(1),
+        name: z.string().trim().min(1).max(240),
         now: z.number().int().nonnegative(),
       }),
       async ({ tx, ctx, args }) => {
@@ -732,23 +1204,13 @@ export const mutators = defineMutators({
         if (target.kind === "chat") {
           throw new Error("Chats cannot have attached discussions")
         }
-        if (tx.location === "server") {
-          const existing = await tx.run(
-            zql.resourceChat
-              .where("targetResourceId", target.id)
-              .where("type", "thread")
-              .one()
-          )
-          if (existing) throw new Error("Discussion already exists")
-        }
-
         const now = timestamp(tx, args.now)
         await tx.mutate.resource.insert({
           id: args.id,
           workspaceId: target.workspaceId,
           parentId: null,
           kind: "chat",
-          name: "Discussion",
+          name: args.name,
           description: null,
           icon: null,
           createdBy: userID,
@@ -762,6 +1224,18 @@ export const mutators = defineMutators({
           directKey: null,
           createdAt: now,
           updatedAt: now,
+        })
+        await recordAuditEvent(tx, ctx, {
+          workspaceId: target.workspaceId,
+          action: "resource.created",
+          targetType: "resource",
+          targetId: args.id,
+          targetLabel: args.name,
+          metadata: {
+            kind: "chat",
+            chatType: "thread",
+            targetResourceId: target.id,
+          },
         })
       }
     ),
@@ -841,6 +1315,18 @@ export const mutators = defineMutators({
           id: message.chatId,
           updatedAt: now,
         })
+        const chatResource = await tx.run(
+          zql.resource.where("id", message.chatId).one()
+        )
+        if (chatResource) {
+          await recordAuditEvent(tx, ctx, {
+            workspaceId: chatResource.workspaceId,
+            action: "message.deleted",
+            targetType: "message",
+            targetId: message.id,
+            metadata: { chatId: message.chatId },
+          })
+        }
       }
     ),
     markRead: defineMutator(

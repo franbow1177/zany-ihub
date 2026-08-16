@@ -19,6 +19,28 @@ export type WorkspaceMember = {
   image: string | null
 }
 
+export type AuditEvent = {
+  id: string
+  workspaceId: string
+  actorId: string | null
+  actorName: string | null
+  actorEmail: string | null
+  action: string
+  targetType: string
+  targetId: string | null
+  targetLabel: string | null
+  changes: Record<string, unknown>
+  metadata: Record<string, unknown>
+  source: "api" | "zero" | "system"
+  requestId: string | null
+  occurredAt: string
+}
+
+export type AuditEventPage = {
+  events: AuditEvent[]
+  nextCursor: string | null
+}
+
 export type WorkspaceInvitationStatus =
   | "pending"
   | "accepted"

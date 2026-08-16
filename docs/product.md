@@ -26,6 +26,7 @@ The product name in the monorepo is `zany-ihub` / “Zany iHub”; treat “iHub
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Workspace**  | Top-level container a user belongs to; unit of sharing and membership                                                                      |
 | **Member**     | User linked to a workspace with a role (`owner` or `member` today)                                                                         |
+| **Team**       | Named organizational group of workspace members; it grants no access and owns no resources or integrations                                 |
 | **Invitation** | Expiring, email-bound request to join a workspace as `member`; it grants no access until accepted                                          |
 | **Resource**   | Named node inside a workspace with shared `description` and optional custom `icon`; typed by `kind`                                        |
 | **Kind**       | Discriminator on a resource — see schema enum `resource_kind` in `packages/db/src/schema/resource.ts` (grep `resourceKindEnum` if renamed) |
@@ -39,9 +40,9 @@ The product name in the monorepo is `zany-ihub` / “Zany iHub”; treat “iHub
 | **Chat**       | Human conversation resource specialized as a workspace channel, private DM, or discussion attached to another resource                     |
 | **Channel**    | Named chat with explicitly selected workspace members that appears in those participants' resource tree                                    |
 | **DM**         | Private chat between exactly two members of the same workspace                                                                             |
-| **Thread**     | One contextual discussion attached to another resource rather than to the folder tree                                                      |
+| **Thread**     | A named contextual discussion attached to another resource rather than to the folder tree                                                  |
 
-Kinds are first-class in the model while their content surfaces ship incrementally. Files, whiteboards, projects, and bookmarks have workspace-backed content. Document and table editors currently persist their content only in the browser and still need server persistence.
+Kinds are first-class in the model while their content surfaces ship incrementally. Document and table content is synchronized through the workspace database alongside files, whiteboards, projects, bookmarks, agents, and conversations.
 
 ## Product principles
 
@@ -52,8 +53,9 @@ Kinds are first-class in the model while their content surfaces ship incremental
 5. **Simple authz until it hurts** — start with `owner` / `member`; richer ReBAC (Zanzibar-style) is deferred, not denied.
 6. **Tasks are project content** — tasks belong to a project and do not appear as independent resource-tree nodes.
 7. **Stable internal links** — bookmarks reference resource IDs; UI paths are derived rather than persisted.
-8. **Reusable AI behavior** — agents own identity and instructions; chats own conversation history and can switch between models and agents.
-9. **Contextual conversation** — human messages are normalized rows synchronized by Zero; participant channels are navigable resources, while DMs use their dedicated area and resource threads open from the workspace header discussion panel.
+8. **Reusable AI behavior** — agents own identity and instructions; chats own conversation history, can switch between models and agents, and can use workspace-scoped tools to inspect or create resources.
+9. **Contextual conversation** — human messages are normalized rows synchronized by Zero; participant channels are navigable resources, while DMs use their dedicated area and resource threads appear as editable tabs in the workspace's inline discussion panel.
+10. **Teams are organizational only** — teams group existing workspace members and do not participate in authorization or other domains.
 
 ## Non-goals (for now)
 

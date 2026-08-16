@@ -2,6 +2,7 @@ import { db, schema } from "@workspace/db"
 import { and, desc, eq, isNull, sql } from "drizzle-orm"
 import { Elysia, t } from "elysia"
 import { serverEnv } from "../env"
+import { recordAuditEvent, requestId } from "../lib/audit"
 import {
   generateInvitationToken,
   hashInvitationToken,
@@ -87,6 +88,7 @@ export const invitationRoutes = new Elysia({ name: "invitation-routes" })
     async ({ body, params, request, set }) => {
       const sessionUser = await getSessionUser(request)
       if (!sessionUser) return unauthorized(set)
+      const auditRequestId = requestId(request)
 
       const owner = await requireOwner(params.id, sessionUser.id, set)
       if ("error" in owner) return owner
@@ -101,34 +103,51 @@ export const invitationRoutes = new Elysia({ name: "invitation-routes" })
       const token = generateInvitationToken()
       const tokenHash = await hashInvitationToken(token)
       const expiresAt = invitationExpiresAt()
-      const [invitation] = await db
-        .insert(schema.workspaceInvitation)
-        .values({
-          id: newId(),
-          workspaceId: params.id,
-          email,
-          tokenHash,
-          invitedBy: sessionUser.id,
-          expiresAt,
-        })
-        .onConflictDoUpdate({
-          target: [
-            schema.workspaceInvitation.workspaceId,
-            schema.workspaceInvitation.email,
-          ],
-          set: {
+      const existing = await db.query.workspaceInvitation.findFirst({
+        where: (row, { and, eq }) =>
+          and(eq(row.workspaceId, params.id), eq(row.email, email)),
+      })
+      const invitation = await db.transaction(async (tx) => {
+        const [written] = await tx
+          .insert(schema.workspaceInvitation)
+          .values({
+            id: newId(),
+            workspaceId: params.id,
+            email,
             tokenHash,
             invitedBy: sessionUser.id,
             expiresAt,
-            acceptedAt: null,
-            acceptedBy: null,
-            revokedAt: null,
-            updatedAt: new Date(),
-          },
+          })
+          .onConflictDoUpdate({
+            target: [
+              schema.workspaceInvitation.workspaceId,
+              schema.workspaceInvitation.email,
+            ],
+            set: {
+              tokenHash,
+              invitedBy: sessionUser.id,
+              expiresAt,
+              acceptedAt: null,
+              acceptedBy: null,
+              revokedAt: null,
+              updatedAt: new Date(),
+            },
+          })
+          .returning()
+        if (!written) throw new Error("Invitation write returned no row")
+        await recordAuditEvent(tx, {
+          workspaceId: params.id,
+          actorId: sessionUser.id,
+          action: existing ? "invitation.resent" : "invitation.created",
+          targetType: "invitation",
+          targetId: written.id,
+          targetLabel: email,
+          metadata: { expiresAt: written.expiresAt.toISOString() },
+          requestId: auditRequestId,
         })
-        .returning()
+        return written
+      })
 
-      if (!invitation) throw new Error("Invitation write returned no row")
       return { ...invitationView(invitation), inviteUrl: inviteUrl(token) }
     },
     {
@@ -161,6 +180,7 @@ export const invitationRoutes = new Elysia({ name: "invitation-routes" })
     async ({ params, request, set }) => {
       const sessionUser = await getSessionUser(request)
       if (!sessionUser) return unauthorized(set)
+      const auditRequestId = requestId(request)
 
       const owner = await requireOwner(params.id, sessionUser.id, set)
       if ("error" in owner) return owner
@@ -176,19 +196,32 @@ export const invitationRoutes = new Elysia({ name: "invitation-routes" })
       }
 
       const token = generateInvitationToken()
-      const [updated] = await db
-        .update(schema.workspaceInvitation)
-        .set({
-          tokenHash: await hashInvitationToken(token),
-          invitedBy: sessionUser.id,
-          expiresAt: invitationExpiresAt(),
-          revokedAt: null,
-          updatedAt: new Date(),
+      const updated = await db.transaction(async (tx) => {
+        const [written] = await tx
+          .update(schema.workspaceInvitation)
+          .set({
+            tokenHash: await hashInvitationToken(token),
+            invitedBy: sessionUser.id,
+            expiresAt: invitationExpiresAt(),
+            revokedAt: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.workspaceInvitation.id, invitation.id))
+          .returning()
+        if (!written) throw new Error("Invitation update returned no row")
+        await recordAuditEvent(tx, {
+          workspaceId: params.id,
+          actorId: sessionUser.id,
+          action: "invitation.resent",
+          targetType: "invitation",
+          targetId: written.id,
+          targetLabel: written.email,
+          metadata: { expiresAt: written.expiresAt.toISOString() },
+          requestId: auditRequestId,
         })
-        .where(eq(schema.workspaceInvitation.id, invitation.id))
-        .returning()
+        return written
+      })
 
-      if (!updated) throw new Error("Invitation update returned no row")
       return { ...invitationView(updated), inviteUrl: inviteUrl(token) }
     }
   )
@@ -197,21 +230,38 @@ export const invitationRoutes = new Elysia({ name: "invitation-routes" })
     async ({ params, request, set }) => {
       const sessionUser = await getSessionUser(request)
       if (!sessionUser) return unauthorized(set)
+      const auditRequestId = requestId(request)
 
       const owner = await requireOwner(params.id, sessionUser.id, set)
       if ("error" in owner) return owner
 
-      const [revoked] = await db
-        .update(schema.workspaceInvitation)
-        .set({ revokedAt: new Date(), updatedAt: new Date() })
-        .where(
-          and(
-            eq(schema.workspaceInvitation.id, params.invitationId),
-            eq(schema.workspaceInvitation.workspaceId, params.id),
-            isNull(schema.workspaceInvitation.acceptedAt)
+      const revoked = await db.transaction(async (tx) => {
+        const [written] = await tx
+          .update(schema.workspaceInvitation)
+          .set({ revokedAt: new Date(), updatedAt: new Date() })
+          .where(
+            and(
+              eq(schema.workspaceInvitation.id, params.invitationId),
+              eq(schema.workspaceInvitation.workspaceId, params.id),
+              isNull(schema.workspaceInvitation.acceptedAt)
+            )
           )
-        )
-        .returning({ id: schema.workspaceInvitation.id })
+          .returning({
+            id: schema.workspaceInvitation.id,
+            email: schema.workspaceInvitation.email,
+          })
+        if (!written) return null
+        await recordAuditEvent(tx, {
+          workspaceId: params.id,
+          actorId: sessionUser.id,
+          action: "invitation.revoked",
+          targetType: "invitation",
+          targetId: written.id,
+          targetLabel: written.email,
+          requestId: auditRequestId,
+        })
+        return written
+      })
 
       if (!revoked) return notFound(set)
       set.status = 204
@@ -249,6 +299,7 @@ export const invitationRoutes = new Elysia({ name: "invitation-routes" })
   .post("/invitations/:token/accept", async ({ params, request, set }) => {
     const sessionUser = await getSessionUser(request)
     if (!sessionUser) return unauthorized(set)
+    const auditRequestId = requestId(request)
 
     const tokenHash = await hashInvitationToken(params.token)
     const result = await db.transaction(async (tx) => {
@@ -296,6 +347,15 @@ export const invitationRoutes = new Elysia({ name: "invitation-routes" })
             updatedAt: new Date(),
           })
           .where(eq(schema.workspaceInvitation.id, invitation.id))
+        await recordAuditEvent(tx, {
+          workspaceId: invitation.workspaceId,
+          actorId: sessionUser.id,
+          action: "invitation.accepted",
+          targetType: "invitation",
+          targetId: invitation.id,
+          targetLabel: invitation.email,
+          requestId: auditRequestId,
+        })
       }
 
       const [workspace] = await tx

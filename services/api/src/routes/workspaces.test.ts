@@ -128,6 +128,67 @@ describe("workspace routes", () => {
     expect(membership?.role).toBe("owner")
   })
 
+  test("exposes append-only audit history to owners only", async () => {
+    const workspace = await createWorkspace("Audited Team")
+    const memberId = crypto.randomUUID()
+    await db.insert(schema.workspaceMember).values({
+      id: memberId,
+      workspaceId: workspace.id,
+      userId: member.id,
+      role: "member",
+    })
+
+    const forbidden = await request(
+      `/workspaces/${workspace.id}/audit-events`,
+      {},
+      memberHeaders
+    )
+    expect(forbidden.status).toBe(403)
+
+    const response = await request(
+      `/workspaces/${workspace.id}/audit-events`,
+      {},
+      ownerHeaders
+    )
+    expect(response.status).toBe(200)
+    const page = (await response.json()) as {
+      events: Array<{
+        action: string
+        actorId: string
+        targetId: string
+        targetLabel: string
+        source: string
+      }>
+      nextCursor: string | null
+    }
+    expect(page.events[0]).toMatchObject({
+      action: "workspace.created",
+      actorId: owner.id,
+      targetId: workspace.id,
+      targetLabel: "Audited Team",
+      source: "api",
+    })
+    expect(page.nextCursor).toBeNull()
+
+    await db
+      .delete(schema.workspaceMember)
+      .where(eq(schema.workspaceMember.id, memberId))
+
+    let mutationError: unknown
+    try {
+      await db
+        .update(schema.auditEvent)
+        .set({ targetLabel: "tampered" })
+        .where(eq(schema.auditEvent.workspaceId, workspace.id))
+    } catch (error) {
+      mutationError = error
+    }
+    expect(mutationError).toBeDefined()
+    expect(String((mutationError as { cause?: unknown }).cause)).toContain(
+      "audit_event is append-only"
+    )
+  })
+
   test("lists and returns only workspaces the user belongs to", async () => {
     const visible = await createWorkspace("Visible")
     await createWorkspace("Owner Only")

@@ -217,6 +217,34 @@ describe("resource routes", () => {
     expect(await response.json()).toEqual([doc])
   })
 
+  test("creates database content rows for documents and tables", async () => {
+    const workspace = await createWorkspace("Persistent Content")
+    const document = await createResource(workspace.id, {
+      name: "Notes",
+      kind: "doc",
+    })
+    const table = await createResource(workspace.id, {
+      name: "Tracker",
+      kind: "table",
+    })
+
+    const [documentContent] = await db
+      .select()
+      .from(schema.resourceDocument)
+      .where(eq(schema.resourceDocument.id, document.id))
+      .limit(1)
+    const [tableContent] = await db
+      .select()
+      .from(schema.resourceTable)
+      .where(eq(schema.resourceTable.id, table.id))
+      .limit(1)
+
+    expect(documentContent).toMatchObject({ id: document.id, content: "" })
+    expect(tableContent?.id).toBe(table.id)
+    expect(tableContent?.data.columns).toHaveLength(4)
+    expect(tableContent?.data.rows).toHaveLength(1)
+  })
+
   test("lists every resource in a workspace for shell navigation", async () => {
     const workspace = await createWorkspace("All Resources")
     const folder = await createResource(workspace.id, {
@@ -464,9 +492,9 @@ describe("resource routes", () => {
     const participants = await db.query.chatParticipant.findMany({
       where: (row, { eq }) => eq(row.chatId, resource.id),
     })
-    expect(participants.map((participant) => participant.userId).sort()).toEqual(
-      [owner.id, outsider.id].sort()
-    )
+    expect(
+      participants.map((participant) => participant.userId).sort()
+    ).toEqual([owner.id, outsider.id].sort())
 
     const response = await request(
       `/workspaces/${workspace.id}/resources?scope=all`,
@@ -491,9 +519,7 @@ describe("resource routes", () => {
     )
     expect(hiddenListResponse.status).toBe(200)
     expect(await hiddenListResponse.json()).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: resource.id }),
-      ])
+      expect.arrayContaining([expect.objectContaining({ id: resource.id })])
     )
 
     const hiddenDetailResponse = await request(
@@ -502,6 +528,74 @@ describe("resource routes", () => {
       nonParticipantHeaders
     )
     expect(hiddenDetailResponse.status).toBe(404)
+  })
+
+  test("supports multiple editable threads attached to one resource", async () => {
+    const workspace = await createWorkspace("Resource Threads")
+    const target = await createResource(workspace.id, {
+      name: "Launch plan",
+      kind: "doc",
+    })
+    const firstThreadId = crypto.randomUUID()
+    const secondThreadId = crypto.randomUUID()
+
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.resource).values([
+        {
+          id: firstThreadId,
+          workspaceId: workspace.id,
+          kind: "chat",
+          name: "Decisions",
+          createdBy: owner.id,
+        },
+        {
+          id: secondThreadId,
+          workspaceId: workspace.id,
+          kind: "chat",
+          name: "Open questions",
+          createdBy: owner.id,
+        },
+      ])
+      await tx.insert(schema.resourceChat).values([
+        {
+          id: firstThreadId,
+          type: "thread",
+          targetResourceId: target.id,
+        },
+        {
+          id: secondThreadId,
+          type: "thread",
+          targetResourceId: target.id,
+        },
+      ])
+    })
+
+    const updateResponse = await request(
+      `/resources/${firstThreadId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ name: "Final decisions", icon: "bubble-chat" }),
+      },
+      ownerHeaders
+    )
+    expect(updateResponse.status).toBe(200)
+    expect(await updateResponse.json()).toMatchObject({
+      id: firstThreadId,
+      name: "Final decisions",
+      icon: "bubble-chat",
+    })
+
+    const deleteResponse = await request(
+      `/resources/${target.id}`,
+      { method: "DELETE" },
+      ownerHeaders
+    )
+    expect(deleteResponse.status).toBe(200)
+    const remainingThreads = await db.query.resource.findMany({
+      where: (row, { inArray }) =>
+        inArray(row.id, [firstThreadId, secondThreadId]),
+    })
+    expect(remainingThreads).toEqual([])
   })
 
   test("creates and saves a whiteboard with optimistic revisions", async () => {

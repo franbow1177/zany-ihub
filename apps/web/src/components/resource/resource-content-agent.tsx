@@ -1,18 +1,11 @@
 import { useEffect, useMemo, useState } from "react"
-import { AiUserIcon, FloppyDiskIcon } from "@hugeicons/core-free-icons"
+import { FloppyDiskIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useQuery, useZero } from "@rocicorp/zero/react"
 import { mutators } from "@workspace/zero/mutators"
 import { queries } from "@workspace/zero/queries"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card"
 import { Label } from "@workspace/ui/components/label"
 import {
   Select,
@@ -30,12 +23,11 @@ import {
   type AgentContent,
   type Resource,
 } from "@/lib/api"
+import { ResourcePageHeader } from "./resource-page-header"
 
 export function ResourceContentAgent({ resource }: { resource: Resource }) {
   const zero = useZero()
-  const [agent, agentState] = useQuery(
-    queries.agents.byID({ id: resource.id })
-  )
+  const [agent, agentState] = useQuery(queries.agents.byID({ id: resource.id }))
   const [models, setModels] = useState<AiModelOption[]>([])
   const content = useMemo<AgentContent | null>(
     () =>
@@ -71,9 +63,12 @@ export function ResourceContentAgent({ resource }: { resource: Resource }) {
         setModels(next)
         setError(null)
       } catch (loadError) {
-        if (loadError instanceof Error && loadError.name === "AbortError") return
+        if (loadError instanceof Error && loadError.name === "AbortError")
+          return
         setError(
-          loadError instanceof Error ? loadError.message : "Could not load agent"
+          loadError instanceof Error
+            ? loadError.message
+            : "Could not load agent"
         )
       }
     }
@@ -127,7 +122,8 @@ export function ResourceContentAgent({ resource }: { resource: Resource }) {
     }
   }
 
-  const queryError = agentState.type === "error" ? agentState.error.message : null
+  const queryError =
+    agentState.type === "error" ? agentState.error.message : null
 
   if (!content && !error && !queryError) {
     return (
@@ -141,19 +137,8 @@ export function ResourceContentAgent({ resource }: { resource: Resource }) {
   const selectedModel = content?.models.find((item) => item.id === model)
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <div>
-        <p className="mb-1 text-sm text-muted-foreground">Agent</p>
-        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-          <HugeiconsIcon icon={AiUserIcon} strokeWidth={1.8} />
-          {resource.name}
-        </h1>
-        {resource.description && (
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            {resource.description}
-          </p>
-        )}
-      </div>
+    <div className="space-y-6">
+      <ResourcePageHeader resource={resource} />
 
       {(error || queryError) && (
         <p className="text-sm text-destructive" role="alert">
@@ -162,28 +147,33 @@ export function ResourceContentAgent({ resource }: { resource: Resource }) {
       )}
 
       {content && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <CardTitle>Agent configuration</CardTitle>
-                <CardDescription>
-                  Reuse this identity and instruction set from any AI chat.
-                </CardDescription>
-              </div>
-              {selectedModel && (
-                <Badge
-                  variant={selectedModel.available ? "secondary" : "outline"}
-                >
-                  {selectedModel.available ? "OpenRouter ready" : "OpenRouter key required"}
-                </Badge>
-              )}
+        <section className="space-y-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="font-heading text-base font-medium">
+                Agent configuration
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Reuse this identity and instruction set from any AI chat.
+              </p>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-5">
+            {selectedModel && (
+              <Badge
+                variant={selectedModel.available ? "secondary" : "outline"}
+              >
+                {selectedModel.available
+                  ? "OpenRouter ready"
+                  : "OpenRouter key required"}
+              </Badge>
+            )}
+          </div>
+          <div className="space-y-5">
             <div className="space-y-2">
               <Label htmlFor="agent-model">Model</Label>
-              <Select value={model} onValueChange={(value) => setModel(String(value))}>
+              <Select
+                value={model}
+                onValueChange={(value) => setModel(String(value))}
+              >
                 <SelectTrigger id="agent-model" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -191,7 +181,9 @@ export function ResourceContentAgent({ resource }: { resource: Resource }) {
                   {content.models.map((item) => (
                     <SelectItem key={item.id} value={item.id}>
                       <span className="flex min-w-0 flex-col">
-                        <span>{item.label} · {item.tier}</span>
+                        <span>
+                          {item.label} · {item.tier}
+                        </span>
                         <span className="text-xs text-muted-foreground">
                           {item.pricing}
                           {!item.available ? " · key required" : ""}
@@ -235,13 +227,16 @@ export function ResourceContentAgent({ resource }: { resource: Resource }) {
             </div>
 
             <div className="flex justify-end">
-              <Button disabled={!hasChanges || isSaving} onClick={() => void save()}>
+              <Button
+                disabled={!hasChanges || isSaving}
+                onClick={() => void save()}
+              >
                 <HugeiconsIcon icon={FloppyDiskIcon} strokeWidth={2} />
                 {isSaving ? "Saving…" : "Save agent"}
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       )}
     </div>
   )

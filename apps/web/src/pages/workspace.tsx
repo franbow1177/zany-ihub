@@ -2,7 +2,6 @@ import { useEffect } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 
-import { WorkspaceDirectMessages } from "@/components/chat/workspace-direct-messages"
 import { ResourcesView } from "@/components/resource/resources-view"
 import { WorkspaceShell } from "@/components/workspace/workspace-shell"
 import { useWorkspaceShellData } from "@/hooks/use-workspace-shell-data"
@@ -35,27 +34,15 @@ export function WorkspacePage() {
       isLoading={shell.isLoading}
     >
       <div className="space-y-8">
-        <div>
-          <p className="mb-1 text-sm text-muted-foreground">Workspace</p>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-            {shell.workspace?.name ?? "Overview"}
-          </h1>
-        </div>
-
         {shell.error && (
           <p className="text-sm text-destructive" role="alert">
             {shell.error}
           </p>
         )}
 
-        <WorkspaceDirectMessages
-          workspaceId={workspaceId}
-          members={shell.members}
-        />
-
         {shell.isLoading && shell.resources.length === 0 ? (
           <div className="space-y-4">
-            <Skeleton className="h-8 w-40" />
+            <Skeleton className="h-10 w-48" />
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {Array.from({ length: 6 }, (_, index) => (
                 <Skeleton className="h-24 rounded-xl" key={index} />

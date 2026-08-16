@@ -1,27 +1,19 @@
 import { useMemo, useState, type ReactElement } from "react"
 import {
   Add01Icon,
-  AiChat02Icon,
-  AiUserIcon,
-  Bookmark01Icon,
-  BubbleChatIcon,
   CubeIcon,
   Delete02Icon,
   Edit02Icon,
-  File01Icon,
   Folder01Icon,
   GridIcon,
   Link01Icon,
   Note01Icon,
   SmileIcon,
-  Table01Icon,
-  Task01Icon,
   TextIcon,
   Upload01Icon,
-  WhiteboardIcon,
 } from "@hugeicons/core-free-icons"
-import type { IconSvgElement } from "@hugeicons/react"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { useHotkeys } from "react-hotkeys-hook"
 import { useQuery, useZero } from "@rocicorp/zero/react"
 import { mutators } from "@workspace/zero/mutators"
 import { queries } from "@workspace/zero/queries"
@@ -49,6 +41,7 @@ import {
   FieldSet,
 } from "@workspace/ui/components/field"
 import { Input } from "@workspace/ui/components/input"
+import { Kbd } from "@workspace/ui/components/kbd"
 import {
   Select,
   SelectContent,
@@ -65,6 +58,7 @@ import {
   SheetTrigger,
 } from "@workspace/ui/components/sheet"
 import { Textarea } from "@workspace/ui/components/textarea"
+import { cn } from "@workspace/ui/lib/utils"
 
 import {
   apiFetch,
@@ -74,6 +68,10 @@ import {
   type WorkspaceMember,
 } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
+import {
+  RESOURCE_KIND_CONFIG,
+  RESOURCE_KINDS,
+} from "@/lib/resource-kind"
 import { ResourceIconPicker } from "./resource-icon-picker"
 import { ResourcePicker } from "./resource-picker"
 
@@ -81,73 +79,12 @@ const PROPERTY_ROW = "gap-0 border-t sm:grid sm:grid-cols-[13rem_minmax(0,1fr)]"
 const PROPERTY_LABEL = "w-full sm:h-full sm:border-r p-3"
 const PROPERTY_CONTROL = "min-w-0 p-3"
 
-const KIND_CONFIG: Record<
-  ResourceKind,
-  { label: string; plural: string; icon: IconSvgElement; description: string }
-> = {
-  folder: {
-    label: "Folder",
-    plural: "Folders",
-    icon: Folder01Icon,
-    description: "A container that can hold other workspace resources.",
-  },
-  file: {
-    label: "File",
-    plural: "Files",
-    icon: File01Icon,
-    description: "A resource backed by an uploaded file in object storage.",
-  },
-  doc: {
-    label: "Document",
-    plural: "Documents",
-    icon: Note01Icon,
-    description: "A writing surface for structured document content.",
-  },
-  table: {
-    label: "Table",
-    plural: "Tables",
-    icon: Table01Icon,
-    description: "A structured grid for rows, columns, and typed values.",
-  },
-  whiteboard: {
-    label: "Whiteboard",
-    plural: "Whiteboards",
-    icon: WhiteboardIcon,
-    description: "An infinite canvas for sketches, diagrams, and ideas.",
-  },
-  project: {
-    label: "Project",
-    plural: "Projects",
-    icon: Task01Icon,
-    description: "A focused space for a project and its tasks.",
-  },
-  bookmark: {
-    label: "Bookmark",
-    plural: "Bookmarks",
-    icon: Bookmark01Icon,
-    description: "A link to another resource or an external website.",
-  },
-  agent: {
-    label: "Agent",
-    plural: "Agents",
-    icon: AiUserIcon,
-    description: "A reusable model, persona, and system prompt.",
-  },
-  "ai-chat": {
-    label: "AI chat",
-    plural: "AI chats",
-    icon: AiChat02Icon,
-    description: "A persistent conversation with a model or agent.",
-  },
-  chat: {
-    label: "Channel",
-    plural: "Channels",
-    icon: BubbleChatIcon,
-    description: "A real-time conversation for workspace members.",
-  },
+function FieldShortcutHint({ index }: { index: number | null }) {
+  if (index == null || index < 1 || index > 9) return null
+  return <Kbd className="ml-auto shrink-0 bg-muted/70 text-[10px]">{index}</Kbd>
 }
 
-const KINDS = Object.keys(KIND_CONFIG) as ResourceKind[]
+const KINDS = RESOURCE_KINDS
 
 function descendantIds(resourceId: string, resources: Resource[]) {
   const result = new Set<string>([resourceId])
@@ -186,6 +123,7 @@ function KindSpecificFields({
   currentUserId,
   selectedChatMemberIds,
   onChatMemberToggle,
+  shortcutFor,
 }: {
   kind: ResourceKind
   resource?: Resource
@@ -202,14 +140,19 @@ function KindSpecificFields({
   currentUserId?: string
   selectedChatMemberIds: string[]
   onChatMemberToggle: (userId: string, selected: boolean) => void
+  shortcutFor: (fieldId: string) => number | null
 }) {
   if (kind === "file") {
     return (
       <FieldGroup className="gap-0">
         <Field className={PROPERTY_ROW}>
-          <FieldLabel htmlFor="resource-file" className={PROPERTY_LABEL}>
+          <FieldLabel
+            htmlFor="resource-file"
+            className={cn(PROPERTY_LABEL, "flex items-center gap-2")}
+          >
             <HugeiconsIcon icon={Upload01Icon} strokeWidth={2} />
             File
+            <FieldShortcutHint index={shortcutFor("resource-file")} />
           </FieldLabel>
           <div className={`${PROPERTY_CONTROL} space-y-2`}>
             <Input
@@ -237,9 +180,12 @@ function KindSpecificFields({
     return (
       <FieldGroup className="gap-0">
         <Field className={PROPERTY_ROW}>
-          <FieldLabel className={PROPERTY_LABEL}>
+          <FieldLabel
+            className={cn(PROPERTY_LABEL, "flex items-center gap-2")}
+          >
             <HugeiconsIcon icon={Link01Icon} strokeWidth={2} />
             Target type
+            <FieldShortcutHint index={shortcutFor("bookmark-target-type")} />
           </FieldLabel>
           <div className={PROPERTY_CONTROL}>
             <Select
@@ -248,7 +194,7 @@ function KindSpecificFields({
                 onBookmarkTargetTypeChange(value as "resource" | "url")
               }
             >
-              <SelectTrigger className="h-10 w-full">
+              <SelectTrigger id="bookmark-target-type" className="h-10 w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -261,7 +207,12 @@ function KindSpecificFields({
 
         {bookmarkTargetType === "resource" ? (
           <Field className={PROPERTY_ROW}>
-            <FieldLabel className={PROPERTY_LABEL}>Resource</FieldLabel>
+            <FieldLabel
+              className={cn(PROPERTY_LABEL, "flex items-center gap-2")}
+            >
+              Resource
+              <FieldShortcutHint index={shortcutFor("bookmark-resource")} />
+            </FieldLabel>
             <div className={`${PROPERTY_CONTROL} space-y-2`}>
               <Select
                 value={bookmarkResourceId}
@@ -269,7 +220,7 @@ function KindSpecificFields({
                   onBookmarkResourceIdChange(String(value))
                 }
               >
-                <SelectTrigger className="h-10 w-full">
+                <SelectTrigger id="bookmark-resource" className="h-10 w-full">
                   <SelectValue placeholder="Choose a resource" />
                 </SelectTrigger>
                 <SelectContent>
@@ -291,8 +242,12 @@ function KindSpecificFields({
           </Field>
         ) : (
           <Field className={PROPERTY_ROW}>
-            <FieldLabel htmlFor="bookmark-url" className={PROPERTY_LABEL}>
+            <FieldLabel
+              htmlFor="bookmark-url"
+              className={cn(PROPERTY_LABEL, "flex items-center gap-2")}
+            >
               URL
+              <FieldShortcutHint index={shortcutFor("bookmark-url")} />
             </FieldLabel>
             <div className={PROPERTY_CONTROL}>
               <Input
@@ -312,20 +267,32 @@ function KindSpecificFields({
 
   if (kind === "chat") {
     const requiredUserIds = new Set(
-      [resource?.createdBy, currentUserId].filter(
-        (userId): userId is string => Boolean(userId)
+      [resource?.createdBy, currentUserId].filter((userId): userId is string =>
+        Boolean(userId)
       )
     )
 
     return (
       <FieldGroup className="gap-0">
         <Field className={PROPERTY_ROW}>
-          <FieldLabel className={PROPERTY_LABEL}>
-            <HugeiconsIcon icon={BubbleChatIcon} strokeWidth={2} />
+          <FieldLabel
+            className={cn(PROPERTY_LABEL, "flex items-center gap-2")}
+          >
+            <HugeiconsIcon
+              icon={RESOURCE_KIND_CONFIG.chat.icon}
+              strokeWidth={2}
+            />
             Members <span className="text-destructive">*</span>
+            <FieldShortcutHint
+              index={shortcutFor("resource-form-chat-members")}
+            />
           </FieldLabel>
           <div className={`${PROPERTY_CONTROL} space-y-3`}>
-            <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border p-2">
+            <div
+              id="resource-form-chat-members"
+              tabIndex={-1}
+              className="max-h-64 space-y-1 overflow-y-auto rounded-lg border p-2 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
               {[...members]
                 .sort((a, b) => a.name.localeCompare(b.name))
                 .map((member) => {
@@ -375,6 +342,7 @@ export function ResourceFormSheet({
   members,
   resource,
   defaultParentId = null,
+  defaultKind = "folder",
   trigger,
   open: controlledOpen,
   onOpenChange,
@@ -387,6 +355,7 @@ export function ResourceFormSheet({
   members: WorkspaceMember[]
   resource?: Resource
   defaultParentId?: string | null
+  defaultKind?: ResourceKind
   trigger?: ReactElement | null
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -406,7 +375,7 @@ export function ResourceFormSheet({
   const [name, setName] = useState(resource?.name ?? "Untitled")
   const [description, setDescription] = useState(resource?.description ?? "")
   const [icon, setIcon] = useState(resource?.icon ?? "")
-  const [kind, setKind] = useState<ResourceKind>(resource?.kind ?? "folder")
+  const [kind, setKind] = useState<ResourceKind>(resource?.kind ?? defaultKind)
   const [parentId, setParentId] = useState<string | null>(
     resource?.parentId ?? defaultParentId
   )
@@ -435,16 +404,70 @@ export function ResourceFormSheet({
       : session?.user.id
         ? [session.user.id]
         : [])
+  const isThread = resource?.kind === "chat" && channel?.type === "thread"
+  const isChannel =
+    kind === "chat" && (!resource || channel?.type === "channel")
   const hasKindSpecificFields =
-    kind === "file" ||
-    kind === "chat" ||
-    (kind === "bookmark" && !resource)
+    kind === "file" || isChannel || (kind === "bookmark" && !resource)
+  const sheetOpen = controlledOpen ?? internalOpen
+
+  const shortcutFields = useMemo(() => {
+    const fields: string[] = []
+    if (!isEditing) fields.push("resource-form-kind")
+    fields.push(
+      "resource-form-name",
+      "resource-form-icon",
+      "resource-form-description"
+    )
+    if (!isThread) fields.push("resource-form-location")
+    if (kind === "file") fields.push("resource-file")
+    if (kind === "bookmark" && !resource) {
+      fields.push("bookmark-target-type")
+      fields.push(
+        bookmarkTargetType === "resource" ? "bookmark-resource" : "bookmark-url"
+      )
+    }
+    if (isChannel) fields.push("resource-form-chat-members")
+    return fields.slice(0, 9)
+  }, [
+    bookmarkTargetType,
+    isChannel,
+    isEditing,
+    isThread,
+    kind,
+    resource,
+  ])
+
+  function shortcutFor(fieldId: string) {
+    const index = shortcutFields.indexOf(fieldId)
+    return index >= 0 ? index + 1 : null
+  }
+
+  useHotkeys(
+    "ctrl+1,ctrl+2,ctrl+3,ctrl+4,ctrl+5,ctrl+6,ctrl+7,ctrl+8,ctrl+9",
+    (event) => {
+      if (!/^[1-9]$/.test(event.key)) return
+      const fieldId = shortcutFields[Number(event.key) - 1]
+      if (!fieldId) return
+      const target = document.getElementById(fieldId)
+      if (!target) return
+      event.preventDefault()
+      target.focus()
+      target.scrollIntoView({ block: "nearest", behavior: "smooth" })
+    },
+    {
+      enabled: sheetOpen,
+      enableOnFormTags: true,
+      preventDefault: true,
+    },
+    [sheetOpen, shortcutFields]
+  )
 
   function resetForm() {
     setName(resource?.name ?? "Untitled")
     setDescription(resource?.description ?? "")
     setIcon(resource?.icon ?? "")
-    setKind(resource?.kind ?? "folder")
+    setKind(resource?.kind ?? defaultKind)
     setParentId(resource?.parentId ?? defaultParentId)
     setFile(null)
     setBookmarkTargetType("url")
@@ -486,7 +509,7 @@ export function ResourceFormSheet({
       setError("Bookmark target is required")
       return
     }
-    if (kind === "chat" && selectedChatMemberIds.length < 2) {
+    if (isChannel && selectedChatMemberIds.length < 2) {
       setError("Select at least one channel member")
       return
     }
@@ -497,7 +520,7 @@ export function ResourceFormSheet({
       let saved: Resource
       if (resource) {
         const now = Date.now()
-        if (resource.kind === "chat") {
+        if (isChannel) {
           const participantResult = zero.mutate(
             mutators.humanChats.updateChannelParticipants({
               id: resource.id,
@@ -520,7 +543,7 @@ export function ResourceFormSheet({
           mutators.resources.update({
             id: resource.id,
             name: trimmedName,
-            parentId,
+            parentId: isThread ? null : parentId,
             description: description.trim() || null,
             icon: icon.trim() || null,
             now,
@@ -533,7 +556,7 @@ export function ResourceFormSheet({
         saved = {
           ...resource,
           name: trimmedName,
-          parentId,
+          parentId: isThread ? null : parentId,
           description: description.trim() || null,
           icon: icon.trim() || null,
           updatedAt: now,
@@ -671,9 +694,14 @@ export function ResourceFormSheet({
               </div>
               <FieldGroup className="gap-0 border-b">
                 <Field className={PROPERTY_ROW}>
-                  <FieldLabel className={PROPERTY_LABEL}>
+                  <FieldLabel
+                    className={cn(PROPERTY_LABEL, "flex items-center gap-2")}
+                  >
                     <HugeiconsIcon icon={CubeIcon} strokeWidth={2} />
                     Type <span className="text-destructive">*</span>
+                    <FieldShortcutHint
+                      index={shortcutFor("resource-form-kind")}
+                    />
                   </FieldLabel>
                   <div className={PROPERTY_CONTROL}>
                     <Select
@@ -681,17 +709,20 @@ export function ResourceFormSheet({
                       disabled={isEditing}
                       onValueChange={(value) => setKind(value as ResourceKind)}
                     >
-                      <SelectTrigger className="h-10 w-full">
+                      <SelectTrigger
+                        id="resource-form-kind"
+                        className="h-10 w-full"
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         {KINDS.map((value) => (
                           <SelectItem value={value} key={value}>
                             <HugeiconsIcon
-                              icon={KIND_CONFIG[value].icon}
+                              icon={RESOURCE_KIND_CONFIG[value].icon}
                               strokeWidth={2}
                             />
-                            {KIND_CONFIG[value].plural}
+                            {RESOURCE_KIND_CONFIG[value].plural}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -702,10 +733,13 @@ export function ResourceFormSheet({
                 <Field className={PROPERTY_ROW}>
                   <FieldLabel
                     htmlFor="resource-form-name"
-                    className={PROPERTY_LABEL}
+                    className={cn(PROPERTY_LABEL, "flex items-center gap-2")}
                   >
                     <HugeiconsIcon icon={TextIcon} strokeWidth={2} />
                     Name <span className="text-destructive">*</span>
+                    <FieldShortcutHint
+                      index={shortcutFor("resource-form-name")}
+                    />
                   </FieldLabel>
                   <div className={PROPERTY_CONTROL}>
                     <Input
@@ -719,12 +753,18 @@ export function ResourceFormSheet({
                 </Field>
 
                 <Field className={PROPERTY_ROW}>
-                  <FieldLabel className={PROPERTY_LABEL}>
+                  <FieldLabel
+                    className={cn(PROPERTY_LABEL, "flex items-center gap-2")}
+                  >
                     <HugeiconsIcon icon={SmileIcon} strokeWidth={2} />
                     Icon
+                    <FieldShortcutHint
+                      index={shortcutFor("resource-form-icon")}
+                    />
                   </FieldLabel>
                   <div className={`${PROPERTY_CONTROL} space-y-2`}>
                     <ResourceIconPicker
+                      id="resource-form-icon"
                       kind={kind}
                       value={icon}
                       onValueChange={setIcon}
@@ -735,10 +775,13 @@ export function ResourceFormSheet({
                 <Field className={PROPERTY_ROW}>
                   <FieldLabel
                     htmlFor="resource-form-description"
-                    className={PROPERTY_LABEL}
+                    className={cn(PROPERTY_LABEL, "flex items-center gap-2")}
                   >
                     <HugeiconsIcon icon={Note01Icon} strokeWidth={2} />
                     Description
+                    <FieldShortcutHint
+                      index={shortcutFor("resource-form-description")}
+                    />
                   </FieldLabel>
                   <div className={PROPERTY_CONTROL}>
                     <Textarea
@@ -752,24 +795,32 @@ export function ResourceFormSheet({
                   </div>
                 </Field>
 
-                <Field className={PROPERTY_ROW}>
-                  <FieldLabel className={PROPERTY_LABEL}>
-                    <HugeiconsIcon icon={Folder01Icon} strokeWidth={2} />
-                    Location
-                  </FieldLabel>
-                  <div className={PROPERTY_CONTROL}>
-                    <ResourcePicker
-                      resources={resources}
-                      value={parentId}
-                      onValueChange={setParentId}
-                      allowedKinds={["folder"]}
-                      includeWorkspaceRoot
-                      excludeIds={unavailableFolderIds}
-                      placeholder="Choose a location"
-                      searchPlaceholder="Search folders…"
-                    />
-                  </div>
-                </Field>
+                {!isThread && (
+                  <Field className={PROPERTY_ROW}>
+                    <FieldLabel
+                      className={cn(PROPERTY_LABEL, "flex items-center gap-2")}
+                    >
+                      <HugeiconsIcon icon={Folder01Icon} strokeWidth={2} />
+                      Location
+                      <FieldShortcutHint
+                        index={shortcutFor("resource-form-location")}
+                      />
+                    </FieldLabel>
+                    <div className={PROPERTY_CONTROL}>
+                      <ResourcePicker
+                        id="resource-form-location"
+                        resources={resources}
+                        value={parentId}
+                        onValueChange={setParentId}
+                        allowedKinds={["folder"]}
+                        includeWorkspaceRoot
+                        excludeIds={unavailableFolderIds}
+                        placeholder="Choose a location"
+                        searchPlaceholder="Search folders…"
+                      />
+                    </div>
+                  </Field>
+                )}
               </FieldGroup>
             </FieldSet>
 
@@ -778,13 +829,13 @@ export function ResourceFormSheet({
                 <div className="p-5">
                   <FieldLegend className="flex items-center gap-2">
                     <HugeiconsIcon
-                      icon={KIND_CONFIG[kind].icon}
+                      icon={RESOURCE_KIND_CONFIG[kind].icon}
                       strokeWidth={2}
                     />
-                    {KIND_CONFIG[kind].label} fields
+                    {RESOURCE_KIND_CONFIG[kind].label} fields
                   </FieldLegend>
                   <FieldDescription>
-                    {KIND_CONFIG[kind].description}
+                    {RESOURCE_KIND_CONFIG[kind].description}
                   </FieldDescription>
                 </div>
                 <KindSpecificFields
@@ -802,6 +853,7 @@ export function ResourceFormSheet({
                   members={members}
                   currentUserId={session?.user.id}
                   selectedChatMemberIds={selectedChatMemberIds}
+                  shortcutFor={shortcutFor}
                   onChatMemberToggle={(userId, selected) =>
                     setChannelMemberSelection(
                       selected

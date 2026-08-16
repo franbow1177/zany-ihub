@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   DndContext,
   DragOverlay,
@@ -22,9 +22,9 @@ import {
 import { CSS } from "@dnd-kit/utilities"
 import {
   Add01Icon,
+  ArrowDown01Icon,
   Delete02Icon,
   DragDropVerticalIcon,
-  Task01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useQuery, useZero } from "@rocicorp/zero/react"
@@ -39,14 +39,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@workspace/ui/components/card"
-import { Input } from "@workspace/ui/components/input"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@workspace/ui/components/select"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu"
+import { Input } from "@workspace/ui/components/input"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
 
@@ -57,6 +56,8 @@ import {
   type ProjectTaskStatus,
   type Resource,
 } from "@/lib/api"
+import { RESOURCE_KIND_CONFIG } from "@/lib/resource-kind"
+import { ResourcePageHeader } from "./resource-page-header"
 
 const TASK_COLUMNS: Array<{
   status: ProjectTaskStatus
@@ -71,6 +72,12 @@ const EMPTY_TASK_INPUTS: Record<ProjectTaskStatus, string> = {
   todo: "",
   in_progress: "",
   done: "",
+}
+
+const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
+  active: "Active",
+  completed: "Completed",
+  archived: "Archived",
 }
 
 function isTaskStatus(value: string): value is ProjectTaskStatus {
@@ -120,7 +127,7 @@ function SortableTaskCard({
       <div className="flex items-center gap-1.5">
         <button
           type="button"
-          className="-ml-1 inline-flex size-7 shrink-0 touch-none cursor-grab items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:cursor-grabbing"
+          className="-ml-1 inline-flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:cursor-grabbing"
           aria-label={`Drag ${task.title}`}
           {...attributes}
           {...listeners}
@@ -146,7 +153,7 @@ function SortableTaskCard({
         />
         <Button
           type="button"
-          size="icon-sm"
+          size="icon"
           variant="ghost"
           className="shrink-0"
           aria-label={`Delete ${task.title}`}
@@ -197,7 +204,10 @@ function TaskColumn({
     >
       <CardHeader className="flex shrink-0 flex-row items-center justify-between border-b py-3">
         <div className="flex items-center gap-2">
-          <HugeiconsIcon icon={Task01Icon} strokeWidth={2} />
+          <HugeiconsIcon
+            icon={RESOURCE_KIND_CONFIG.project.icon}
+            strokeWidth={2}
+          />
           <CardTitle>{label}</CardTitle>
         </div>
         <Badge variant="outline">{tasks.length}</Badge>
@@ -297,21 +307,17 @@ export function ResourceContentProject({ resource }: { resource: Resource }) {
     )
   }, [activeTaskId, projectRow])
 
-  const completedCount = useMemo(
-    () => tasks.filter((task) => task.status === "done").length,
-    [tasks]
-  )
   const activeTask = activeTaskId
     ? tasks.find((task) => task.id === activeTaskId)
     : null
 
-  async function updateProject(status: ProjectStatus) {
+  async function updateProject(status: ProjectStatus, now: number) {
     if (!project) return
     setIsSavingProject(true)
     setError(null)
     try {
       const result = zero.mutate(
-        mutators.projects.update({ id: resource.id, status, now: Date.now() })
+        mutators.projects.update({ id: resource.id, status, now })
       )
       const serverResult = await result.server
       if (serverResult.type === "error") {
@@ -479,17 +485,16 @@ export function ResourceContentProject({ resource }: { resource: Resource }) {
 
     try {
       const results = await Promise.all(
-        changed.map((task) =>
-          zero
-            .mutate(
+        changed.map(
+          (task) =>
+            zero.mutate(
               mutators.tasks.update({
                 id: task.id,
                 status: task.status,
                 position: task.position,
                 now: Date.now(),
               })
-            )
-            .server
+            ).server
         )
       )
       const failed = results.find((result) => result.type === "error")
@@ -584,43 +589,42 @@ export function ResourceContentProject({ resource }: { resource: Resource }) {
 
   return (
     <div className="flex h-[calc(100svh-5.5rem)] min-h-[28rem] flex-col gap-4 sm:h-[calc(100svh-6.5rem)] lg:h-[calc(100svh-7.5rem)]">
-      <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
-          <p className="mb-1 text-sm text-muted-foreground">Project</p>
-          <h1 className="truncate text-2xl font-semibold tracking-tight sm:text-3xl">
-            {resource.icon && <span className="mr-2">{resource.icon}</span>}
-            {resource.name}
-          </h1>
-          {resource.description && (
-            <p className="mt-1 line-clamp-2 max-w-2xl text-sm text-muted-foreground">
-              {resource.description}
-            </p>
-          )}
-        </div>
-        {project && (
-          <div className="flex shrink-0 items-center gap-2">
-            <Badge variant="secondary">
-              {completedCount} / {tasks.length} completed
-            </Badge>
-            <Select
-              value={project.status}
-              disabled={isSavingProject}
-              onValueChange={(value) =>
-                void updateProject(value as ProjectStatus)
-              }
-            >
-              <SelectTrigger className="w-36">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-                <SelectItem value="archived">Archived</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-      </div>
+      <ResourcePageHeader
+        resource={resource}
+        className="shrink-0"
+        actions={
+          project && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={isSavingProject}
+                    aria-label="Change project status"
+                  />
+                }
+              >
+                {PROJECT_STATUS_LABELS[project.status]}
+                <HugeiconsIcon icon={ArrowDown01Icon} strokeWidth={2} />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-36">
+                {(Object.keys(PROJECT_STATUS_LABELS) as ProjectStatus[]).map(
+                  (status) => (
+                    <DropdownMenuItem
+                      key={status}
+                      disabled={status === project.status}
+                      onClick={() => void updateProject(status, Date.now())}
+                    >
+                      {PROJECT_STATUS_LABELS[status]}
+                    </DropdownMenuItem>
+                  )
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )
+        }
+      />
 
       {(error || queryError) && (
         <p className="shrink-0 text-sm text-destructive" role="alert">
@@ -636,7 +640,7 @@ export function ResourceContentProject({ resource }: { resource: Resource }) {
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className="grid min-h-0 flex-1 grid-flow-col auto-cols-[minmax(17rem,1fr)] gap-4 overflow-x-auto pb-1 lg:grid-flow-row lg:grid-cols-3 lg:auto-cols-auto lg:overflow-x-visible">
+        <div className="grid min-h-0 flex-1 auto-cols-[minmax(17rem,1fr)] grid-flow-col gap-4 overflow-x-auto pb-1 lg:auto-cols-auto lg:grid-flow-row lg:grid-cols-3 lg:overflow-x-visible">
           {TASK_COLUMNS.map((column) => {
             const columnTasks = tasks.filter(
               (task) => task.status === column.status
@@ -655,9 +659,7 @@ export function ResourceContentProject({ resource }: { resource: Resource }) {
                     [column.status]: value,
                   }))
                 }
-                onCreateTask={(event) =>
-                  void createTask(event, column.status)
-                }
+                onCreateTask={(event) => void createTask(event, column.status)}
                 onUpdateTask={(taskId, title) =>
                   void updateTaskTitle(taskId, title)
                 }

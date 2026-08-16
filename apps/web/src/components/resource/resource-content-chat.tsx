@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { ArrowUp02Icon, BubbleChatIcon } from "@hugeicons/core-free-icons"
+import { ArrowUp02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useQuery, useZero } from "@rocicorp/zero/react"
 import { mutators } from "@workspace/zero/mutators"
@@ -10,12 +10,12 @@ import {
   AvatarImage,
 } from "@workspace/ui/components/avatar"
 import { Button } from "@workspace/ui/components/button"
-import { Card } from "@workspace/ui/components/card"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Textarea } from "@workspace/ui/components/textarea"
 
 import type { Resource } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
+import { ResourcePageHeader } from "./resource-page-header"
 
 export function ChatConversation({
   chatId,
@@ -124,38 +124,24 @@ export function ChatConversation({
         )?.user ?? chat.participants.at(0)?.user)
       : null
   const title = otherParticipant?.name ?? resource.name
-  const eyebrow =
-    chat.type === "dm"
-      ? "Direct message"
-      : chat.type === "thread"
-        ? "Discussion"
-        : "Workspace channel"
-
   return (
     <div
       className={
         compact
-          ? "flex min-h-[28rem] flex-col gap-3"
+          ? "flex h-full min-h-0 flex-col gap-3"
           : "flex h-[calc(100svh-5.5rem)] min-h-[30rem] flex-col gap-4 sm:h-[calc(100svh-6.5rem)] lg:h-[calc(100svh-7.5rem)]"
       }
     >
       {!compact && (
-        <div className="shrink-0">
-          <p className="mb-1 text-sm text-muted-foreground">{eyebrow}</p>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-            <HugeiconsIcon icon={BubbleChatIcon} strokeWidth={1.8} />
-            {title}
-          </h1>
-          {resource.description && (
-            <p className="mt-1 text-sm text-muted-foreground">
-              {resource.description}
-            </p>
-          )}
-        </div>
+        <ResourcePageHeader
+          resource={resource}
+          title={title}
+          className="shrink-0"
+        />
       )}
 
-      <Card className="min-h-0 flex-1 gap-0 overflow-hidden py-0">
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {orderedMessages.length === 0 ? (
             <div className="grid h-full min-h-64 place-items-center text-center text-sm text-muted-foreground">
               No messages yet. Start the conversation.
@@ -204,7 +190,7 @@ export function ChatConversation({
           )}
         </div>
 
-        <form className="border-t p-3 sm:p-4" onSubmit={send}>
+        <form className="shrink-0" onSubmit={send}>
           <div className="mx-auto flex max-w-3xl items-end gap-2">
             <Textarea
               value={input}
@@ -234,7 +220,7 @@ export function ChatConversation({
             </p>
           )}
         </form>
-      </Card>
+      </div>
     </div>
   )
 }

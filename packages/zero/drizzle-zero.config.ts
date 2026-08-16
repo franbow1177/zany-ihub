@@ -6,6 +6,21 @@ import * as drizzleSchema from "../db/src/schema/index"
 // intentionally remain API-only.
 export default drizzleZeroConfig(drizzleSchema, {
   tables: {
+    auditEvent: {
+      id: true,
+      workspaceId: true,
+      actorId: true,
+      action: true,
+      targetType: true,
+      targetId: true,
+      targetLabel: true,
+      changes: true,
+      metadata: true,
+      source: true,
+      requestId: true,
+      operationId: true,
+      occurredAt: true,
+    },
     user: {
       id: true,
       name: true,
@@ -28,6 +43,20 @@ export default drizzleZeroConfig(drizzleSchema, {
       role: true,
       createdAt: true,
     },
+    team: {
+      id: true,
+      workspaceId: true,
+      name: true,
+      description: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+    teamMember: {
+      id: true,
+      teamId: true,
+      userId: true,
+      createdAt: true,
+    },
     resource: {
       id: true,
       workspaceId: true,
@@ -45,6 +74,18 @@ export default drizzleZeroConfig(drizzleSchema, {
       mimeType: true,
       sizeBytes: true,
       originalName: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+    resourceDocument: {
+      id: true,
+      content: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+    resourceTable: {
+      id: true,
+      data: true,
       createdAt: true,
       updatedAt: true,
     },

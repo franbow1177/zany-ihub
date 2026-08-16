@@ -63,7 +63,7 @@ export function ResourceContent({
       return (
         <Suspense
           fallback={
-            <div className="h-[70vh] min-h-[34rem] animate-pulse rounded-xl bg-muted" />
+            <div className="h-[calc(100svh-5.5rem)] min-h-[34rem] animate-pulse rounded-xl bg-muted sm:h-[calc(100svh-6.5rem)] lg:h-[calc(100svh-7.5rem)]" />
           }
         >
           <ResourceContentWhiteboard key={resource.id} resource={resource} />

@@ -59,6 +59,25 @@ export const queries = defineQueries({
         : zql.workspaceMember.where("id", "__unauthenticated__").related("user")
     ),
   },
+  teams: {
+    byWorkspace: defineQuery(workspaceArg, ({ args, ctx }) =>
+      ctx
+        ? zql.team
+            .where("workspaceId", args.workspaceId)
+            .whereExists("workspace", (workspace) =>
+              workspace.whereExists("members", (members) =>
+                members.where("userId", ctx.userID)
+              )
+            )
+            .related("members", (members) =>
+              members.related("user").orderBy("createdAt", "asc")
+            )
+            .orderBy("name", "asc")
+        : zql.team
+            .where("id", "__unauthenticated__")
+            .related("members", (members) => members.related("user"))
+    ),
+  },
   resources: {
     byWorkspace: defineQuery(workspaceArg, ({ args, ctx }) =>
       ctx
@@ -243,8 +262,8 @@ export const queries = defineQueries({
               )
             )
             .related("resource")
-            .one()
-        : inaccessibleHumanChat().related("resource").one()
+            .orderBy("createdAt", "asc")
+        : inaccessibleHumanChat().related("resource")
     ),
     messages: defineQuery(chatArg, ({ args, ctx }) =>
       ctx
@@ -313,6 +332,38 @@ export const queries = defineQueries({
             )
             .one()
         : zql.resourceFile.where("id", "__unauthenticated__").one()
+    ),
+  },
+  documents: {
+    byID: defineQuery(idArg, ({ args, ctx }) =>
+      ctx
+        ? zql.resourceDocument
+            .where("id", args.id)
+            .whereExists("resource", (resource) =>
+              resource.whereExists("workspace", (workspace) =>
+                workspace.whereExists("members", (members) =>
+                  members.where("userId", ctx.userID)
+                )
+              )
+            )
+            .one()
+        : zql.resourceDocument.where("id", "__unauthenticated__").one()
+    ),
+  },
+  tables: {
+    byID: defineQuery(idArg, ({ args, ctx }) =>
+      ctx
+        ? zql.resourceTable
+            .where("id", args.id)
+            .whereExists("resource", (resource) =>
+              resource.whereExists("workspace", (workspace) =>
+                workspace.whereExists("members", (members) =>
+                  members.where("userId", ctx.userID)
+                )
+              )
+            )
+            .one()
+        : zql.resourceTable.where("id", "__unauthenticated__").one()
     ),
   },
   projects: {

@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
+import { useHotkeys } from "react-hotkeys-hook"
 import {
   DndContext,
   DragOverlay,
@@ -14,6 +15,8 @@ import {
 } from "@dnd-kit/core"
 import { CSS } from "@dnd-kit/utilities"
 import {
+  Add01Icon,
+  ArrowDown01Icon,
   ArrowUpRight01Icon,
   Edit02Icon,
   Folder01Icon,
@@ -25,14 +28,9 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useZero } from "@rocicorp/zero/react"
 import { mutators } from "@workspace/zero/mutators"
-import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
-import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card"
+import { ButtonGroup } from "@workspace/ui/components/button-group"
+import { Card, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,8 +51,9 @@ import {
 } from "@workspace/ui/components/empty"
 import { cn } from "@workspace/ui/lib/utils"
 
-import type { Resource, WorkspaceMember } from "@/lib/api"
-import { RESOURCE_KIND_CONFIG } from "@/lib/resource-kind"
+import { PageHeader } from "@/components/page-header"
+import type { Resource, ResourceKind, WorkspaceMember } from "@/lib/api"
+import { RESOURCE_KIND_CONFIG, RESOURCE_KINDS } from "@/lib/resource-kind"
 import { ResourceFormSheet } from "./resource-form-sheet"
 import { ResourceKindIcon } from "./resource-kind-icon"
 
@@ -133,9 +132,9 @@ function ResourceMenu({
           render={
             <Button
               variant="ghost"
-              size="icon-sm"
+              size="icon"
               aria-label={`Actions for ${resource.name}`}
-              className="relative z-20 opacity-60 group-hover:opacity-100 hover:opacity-100"
+              className="relative z-20 opacity-0 transition-opacity group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => event.stopPropagation()}
             />
@@ -210,7 +209,6 @@ function CardFace({
   resource: Resource
   overlay?: boolean
 }) {
-  const kind = RESOURCE_KIND_CONFIG[resource.kind]
   return (
     <Card
       className={cn(
@@ -219,7 +217,7 @@ function CardFace({
       )}
     >
       <CardHeader className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2.5 px-3 py-2.5">
-        <span className="row-span-2 flex size-8 items-center justify-center rounded-lg bg-background text-muted-foreground transition-colors group-hover:text-foreground">
+        <span className="flex size-8 items-center justify-center rounded-lg bg-background text-muted-foreground transition-colors group-hover:text-foreground">
           <ResourceKindIcon
             kind={resource.kind}
             icon={resource.icon}
@@ -227,9 +225,6 @@ function CardFace({
           />
         </span>
         <CardTitle className="truncate pr-7 text-sm">{resource.name}</CardTitle>
-        <CardDescription className="truncate text-xs">
-          {resource.description || kind.label}
-        </CardDescription>
       </CardHeader>
     </Card>
   )
@@ -319,6 +314,9 @@ export function ResourcesView({
   const zero = useZero()
   const navigate = useNavigate()
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createKind, setCreateKind] = useState<ResourceKind>("folder")
+  const [createSession, setCreateSession] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 7 } })
@@ -327,6 +325,29 @@ export function ResourcesView({
     .filter((resource) => resource.parentId === parentId)
     .sort((a, b) => a.name.localeCompare(b.name))
   const active = resources.find((resource) => resource.id === activeId) ?? null
+
+  useHotkeys(
+    "ctrl+1,ctrl+2,ctrl+3,ctrl+4,ctrl+5,ctrl+6,ctrl+7,ctrl+8,ctrl+9",
+    (event) => {
+      if (!/^[1-9]$/.test(event.key)) return
+      if (document.querySelector('[role="dialog"]')) return
+      const resource = visible[Number(event.key) - 1]
+      if (!resource) return
+      event.preventDefault()
+      navigate(`/workspace/${workspaceId}/resource/${resource.id}`)
+    },
+    {
+      enabled: !createOpen && visible.length > 0,
+      preventDefault: true,
+    },
+    [createOpen, navigate, visible, workspaceId]
+  )
+
+  function openCreator(kind: ResourceKind) {
+    setCreateKind(kind)
+    setCreateSession((current) => current + 1)
+    setCreateOpen(true)
+  }
 
   async function move(resource: Resource, nextParentId: string | null) {
     if (resource.parentId === nextParentId) return
@@ -369,6 +390,37 @@ export function ResourcesView({
     }
   }
 
+  const createActions = (
+    <ButtonGroup>
+      <Button type="button" onClick={() => openCreator("folder")}>
+        <HugeiconsIcon icon={Add01Icon} strokeWidth={2} />
+        New resource
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              type="button"
+              size="icon"
+              className="relative before:absolute before:inset-y-1.5 before:left-0 before:w-px before:bg-primary-foreground/20"
+              aria-label="Choose resource type"
+            />
+          }
+        >
+          <HugeiconsIcon icon={ArrowDown01Icon} strokeWidth={2} />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-44">
+          {RESOURCE_KINDS.map((kind) => (
+            <DropdownMenuItem key={kind} onClick={() => openCreator(kind)}>
+              <ResourceKindIcon kind={kind} className="size-4" />
+              {RESOURCE_KIND_CONFIG[kind].label}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </ButtonGroup>
+  )
+
   return (
     <DndContext
       sensors={sensors}
@@ -380,32 +432,23 @@ export function ResourcesView({
       onDragCancel={() => setActiveId(null)}
       onDragEnd={dragEnd}
     >
-      <section className="space-y-3" aria-labelledby="resources-heading">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2">
+      <section className="space-y-6" aria-labelledby="resources-heading">
+        {parentId ? (
+          <div className="flex items-center justify-between gap-3">
             <h2 id="resources-heading" className="text-lg font-semibold">
-              {parentId ? "Contents" : "Resources"}
+              Contents
             </h2>
-            <Badge variant="outline">{visible.length}</Badge>
-            {parentId && (
-              <RootDrop active={Boolean(activeId)}>Workspace root</RootDrop>
-            )}
+            {createActions}
           </div>
-          <div className="flex items-center gap-3">
-            <span className="hidden text-xs text-muted-foreground md:inline">
-              Drag a card onto a folder to move it
-            </span>
-            <ResourceFormSheet
-              workspaceId={workspaceId}
-              resources={resources}
-              members={members}
-              defaultParentId={parentId}
-              onCreated={(resource) =>
-                navigate(`/workspace/${workspaceId}/resource/${resource.id}`)
-              }
-            />
-          </div>
-        </div>
+        ) : (
+          <PageHeader
+            icon={<HugeiconsIcon icon={Folder01Icon} strokeWidth={2} />}
+            title={<span id="resources-heading">Resources</span>}
+            actions={createActions}
+          />
+        )}
+
+        {parentId && activeId && <RootDrop active>Workspace root</RootDrop>}
 
         {error && (
           <p
@@ -450,6 +493,21 @@ export function ResourcesView({
             ))}
           </div>
         )}
+
+        <ResourceFormSheet
+          key={`${parentId ?? "root"}:${createKind}:${createSession}`}
+          workspaceId={workspaceId}
+          resources={resources}
+          members={members}
+          defaultParentId={parentId}
+          defaultKind={createKind}
+          trigger={null}
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          onCreated={(resource) =>
+            navigate(`/workspace/${workspaceId}/resource/${resource.id}`)
+          }
+        />
       </section>
 
       <DragOverlay dropAnimation={null}>

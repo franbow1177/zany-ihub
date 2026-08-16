@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Add01Icon,
   DragDropVerticalIcon,
@@ -20,8 +20,11 @@ import {
 import { BubbleMenu } from "@tiptap/react/menus"
 import StarterKit from "@tiptap/starter-kit"
 import { exitSuggestion } from "@tiptap/suggestion"
-import { Badge } from "@workspace/ui/components/badge"
+import { useQuery, useZero } from "@rocicorp/zero/react"
+import { mutators } from "@workspace/zero/mutators"
+import { queries } from "@workspace/zero/queries"
 import { Button } from "@workspace/ui/components/button"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 
 import type { Resource, WorkspaceMember } from "@/lib/api"
 import {
@@ -35,6 +38,7 @@ import {
 } from "./resource-doc-mention-list"
 import { ResourceDocMention } from "./resource-doc-mention"
 import { ResourceDocSlashCommand } from "./resource-doc-slash-command"
+import { ResourcePageHeader } from "./resource-page-header"
 
 const dragHandlePosition = {
   placement: "left-start" as const,
@@ -48,12 +52,20 @@ const bubbleMenuPosition = {
   shift: true,
 }
 
-function storageKey(resourceId: string) {
-  return `zany-ihub:document:${resourceId}`
-}
+class LatestValue<T> {
+  #value: T
 
-function loadDocument(resourceId: string) {
-  return window.localStorage.getItem(storageKey(resourceId)) ?? ""
+  constructor(value: T) {
+    this.#value = value
+  }
+
+  get() {
+    return this.#value
+  }
+
+  set(value: T) {
+    this.#value = value
+  }
 }
 
 export function ResourceContentDoc({
@@ -65,14 +77,60 @@ export function ResourceContentDoc({
   resources: Resource[]
   members: WorkspaceMember[]
 }) {
+  const zero = useZero()
+  const [documentRow, documentState] = useQuery(
+    queries.documents.byID({ id: resource.id })
+  )
+  const saveTimerRef = useRef<number | null>(null)
+  const pendingContentRef = useRef<string | null>(null)
+  const mountedRef = useRef(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const mentionItems = useMemo(
     () => buildWorkspaceMentionItems(resources, members),
     [resources, members]
   )
+  const [mentionItemsStore] = useState(() => new LatestValue(mentionItems))
   const [hoveredBlock, setHoveredBlock] = useState<{
     pos: number
     nodeSize: number
   } | null>(null)
+
+  useEffect(() => {
+    mentionItemsStore.set(mentionItems)
+  }, [mentionItems, mentionItemsStore])
+
+  const getMentionItems = useCallback(
+    () => mentionItemsStore.get(),
+    [mentionItemsStore]
+  )
+
+  const persistDocument = useCallback(
+    (content: string) => {
+      if (zero.closed || !mountedRef.current) return
+
+      const result = zero.mutate(
+        mutators.documents.update({
+          id: resource.id,
+          content,
+          now: Date.now(),
+        })
+      )
+      setSaveError(null)
+      void result.server
+        .then((serverResult) => {
+          if (serverResult.type === "error") {
+            throw new Error(serverResult.error.message)
+          }
+        })
+        .catch((error: unknown) => {
+          if (zero.closed || !mountedRef.current) return
+          setSaveError(
+            error instanceof Error ? error.message : "Could not save document"
+          )
+        })
+    },
+    [resource.id, zero]
+  )
 
   const editor = useEditor(
     {
@@ -86,7 +144,10 @@ export function ResourceContentDoc({
           addNodeView() {
             return ReactNodeViewRenderer(
               (props) => (
-                <ResourceDocMention {...props} mentionItems={mentionItems} />
+                <ResourceDocMention
+                  {...props}
+                  mentionItems={getMentionItems()}
+                />
               ),
               { as: "span" }
             )
@@ -98,7 +159,7 @@ export function ResourceContentDoc({
           suggestion: {
             char: "@",
             items: ({ query }) =>
-              filterWorkspaceMentionItems(mentionItems, query),
+              filterWorkspaceMentionItems(getMentionItems(), query),
             render: () => {
               let component: ReactRenderer<
                 ResourceDocMentionListHandle,
@@ -133,38 +194,75 @@ export function ResourceContentDoc({
           },
         }),
       ],
-      content: loadDocument(resource.id),
+      content: "",
       editorProps: {
         attributes: {
-          class:
-            "tiptap min-h-[32rem] py-6 pr-5 pl-14 sm:py-8 sm:pr-8 sm:pl-16",
+          class: "tiptap min-h-[32rem]",
         },
       },
       onUpdate: ({ editor: currentEditor }) => {
-        window.localStorage.setItem(
-          storageKey(resource.id),
-          currentEditor.getHTML()
-        )
+        if (currentEditor.isDestroyed) return
+
+        pendingContentRef.current = currentEditor.getHTML()
+        if (saveTimerRef.current !== null) {
+          window.clearTimeout(saveTimerRef.current)
+        }
+        saveTimerRef.current = window.setTimeout(() => {
+          saveTimerRef.current = null
+          const content = pendingContentRef.current
+          pendingContentRef.current = null
+          if (content !== null) persistDocument(content)
+        }, 200)
       },
     },
-    [mentionItems, resource.id]
+    [resource.id]
   )
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !documentRow) return
+    const content = documentRow.content ?? ""
+    if (
+      editor.getHTML() !== content &&
+      !editor.isFocused &&
+      pendingContentRef.current === null
+    ) {
+      editor.commands.setContent(content, { emitUpdate: false })
+    }
+  }, [documentRow, editor])
+
+  useEffect(() => {
+    mountedRef.current = true
+
+    return () => {
+      mountedRef.current = false
+      if (saveTimerRef.current !== null) {
+        window.clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+      }
+      pendingContentRef.current = null
+    }
+  }, [])
 
   const editorState = useEditorState({
     editor,
-    selector: ({ editor: currentEditor }) => ({
-      bold: currentEditor.isActive("bold"),
-      italic: currentEditor.isActive("italic"),
-      strike: currentEditor.isActive("strike"),
-    }),
+    selector: ({ editor: currentEditor }) =>
+      !currentEditor || currentEditor.isDestroyed
+        ? { bold: false, italic: false, strike: false }
+        : {
+            bold: currentEditor.isActive("bold"),
+            italic: currentEditor.isActive("italic"),
+            strike: currentEditor.isActive("strike"),
+          },
   })
 
+  const activeEditor = editor && !editor.isDestroyed ? editor : null
+
   function addBlockAfterHoveredBlock() {
-    if (!editor || !hoveredBlock) return
+    if (!activeEditor || !hoveredBlock) return
 
     const insertPos = hoveredBlock.pos + hoveredBlock.nodeSize
 
-    editor
+    activeEditor
       .chain()
       .focus()
       .insertContentAt(insertPos, {
@@ -175,107 +273,125 @@ export function ResourceContentDoc({
       .run()
   }
 
+  const queryError =
+    documentState.type === "error" ? documentState.error.message : null
+
+  if (!documentRow && !queryError) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-14 w-72" />
+        <Skeleton className="h-[32rem] w-full" />
+      </div>
+    )
+  }
+
+  if (!documentRow) {
+    return (
+      <p className="text-sm text-destructive" role="alert">
+        {queryError ?? "Document content not found"}
+      </p>
+    )
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="mb-1 text-sm text-muted-foreground">Document</p>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            {resource.name}
-          </h1>
-        </div>
-        <Badge variant="outline">Saved locally</Badge>
-      </div>
+      <ResourcePageHeader resource={resource} />
 
-          {editor ? (
-            <BubbleMenu
-              editor={editor}
-              pluginKey="resource-doc-selection-toolbar"
-              updateDelay={0}
-              options={bubbleMenuPosition}
-              appendTo={() => document.body}
-              shouldShow={({ editor: currentEditor, state, from, to }) =>
-                currentEditor.isEditable &&
-                from !== to &&
-                state.selection.$from.parent.inlineContent &&
-                state.selection.$to.parent.inlineContent &&
-                !currentEditor.isActive("codeBlock")
-              }
+      {saveError && (
+        <p className="text-sm text-destructive" role="alert">
+          {saveError}
+        </p>
+      )}
+
+      {activeEditor ? (
+        <BubbleMenu
+          editor={activeEditor}
+          pluginKey="resource-doc-selection-toolbar"
+          updateDelay={0}
+          options={bubbleMenuPosition}
+          appendTo={() => document.body}
+          shouldShow={({ editor: currentEditor, state, from, to }) =>
+            currentEditor.isEditable &&
+            from !== to &&
+            state.selection.$from.parent.inlineContent &&
+            state.selection.$to.parent.inlineContent &&
+            !currentEditor.isActive("codeBlock")
+          }
+        >
+          <div
+            className="z-50 flex items-center gap-0.5 rounded-lg border bg-popover/95 p-1 text-popover-foreground shadow-lg backdrop-blur-sm"
+            role="toolbar"
+            aria-label="Text formatting"
+          >
+            <Button
+              type="button"
+              size="icon"
+              variant={editorState?.bold ? "secondary" : "ghost"}
+              aria-label="Bold"
+              aria-pressed={editorState?.bold}
+              onClick={() => activeEditor.chain().focus().toggleBold().run()}
             >
-              <div
-                className="z-50 flex items-center gap-0.5 rounded-lg border bg-popover/95 p-1 text-popover-foreground shadow-lg backdrop-blur-sm"
-                role="toolbar"
-                aria-label="Text formatting"
-              >
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant={editorState?.bold ? "secondary" : "ghost"}
-                  aria-label="Bold"
-                  aria-pressed={editorState?.bold}
-                  onClick={() => editor.chain().focus().toggleBold().run()}
-                >
-                  <HugeiconsIcon icon={TextBoldIcon} strokeWidth={2} />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant={editorState?.italic ? "secondary" : "ghost"}
-                  aria-label="Italic"
-                  aria-pressed={editorState?.italic}
-                  onClick={() => editor.chain().focus().toggleItalic().run()}
-                >
-                  <HugeiconsIcon icon={TextItalicIcon} strokeWidth={2} />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant={editorState?.strike ? "secondary" : "ghost"}
-                  aria-label="Strikethrough"
-                  aria-pressed={editorState?.strike}
-                  onClick={() => editor.chain().focus().toggleStrike().run()}
-                >
-                  <HugeiconsIcon icon={TextStrikethroughIcon} strokeWidth={2} />
-                </Button>
-              </div>
-            </BubbleMenu>
-          ) : null}
-          {editor ? (
-            <DragHandle
-              editor={editor}
-              className="resource-doc-drag-handle"
-              computePositionConfig={dragHandlePosition}
-              onNodeChange={({ node, pos }) =>
-                setHoveredBlock(node ? { pos, nodeSize: node.nodeSize } : null)
-              }
+              <HugeiconsIcon icon={TextBoldIcon} strokeWidth={2} />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant={editorState?.italic ? "secondary" : "ghost"}
+              aria-label="Italic"
+              aria-pressed={editorState?.italic}
+              onClick={() => activeEditor.chain().focus().toggleItalic().run()}
             >
-              <div className="flex items-center rounded-md bg-background/95 p-0.5 text-muted-foreground shadow-sm ring-1 ring-foreground/10 backdrop-blur-sm">
-                <button
-                  type="button"
-                  className="flex size-6 items-center justify-center rounded-sm outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-                  contentEditable={false}
-                  draggable={false}
-                  aria-label="Add block below"
-                  title="Add block below"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onDragStart={(event) => event.preventDefault()}
-                  onClick={addBlockAfterHoveredBlock}
-                >
-                  <HugeiconsIcon icon={Add01Icon} strokeWidth={2} />
-                </button>
-                <button
-                  type="button"
-                  className="flex size-6 cursor-grab items-center justify-center rounded-sm outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:cursor-grabbing"
-                  contentEditable={false}
-                  aria-label="Drag block"
-                  title="Drag to reorder block"
-                >
-                  <HugeiconsIcon icon={DragDropVerticalIcon} strokeWidth={2} />
-                </button>
-              </div>
-            </DragHandle>
-          ) : null}
-          <EditorContent editor={editor} />
+              <HugeiconsIcon icon={TextItalicIcon} strokeWidth={2} />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant={editorState?.strike ? "secondary" : "ghost"}
+              aria-label="Strikethrough"
+              aria-pressed={editorState?.strike}
+              onClick={() => activeEditor.chain().focus().toggleStrike().run()}
+            >
+              <HugeiconsIcon icon={TextStrikethroughIcon} strokeWidth={2} />
+            </Button>
+          </div>
+        </BubbleMenu>
+      ) : null}
+      {activeEditor ? (
+        <DragHandle
+          editor={activeEditor}
+          className="resource-doc-drag-handle"
+          computePositionConfig={dragHandlePosition}
+          onNodeChange={({ node, pos }) =>
+            setHoveredBlock(node ? { pos, nodeSize: node.nodeSize } : null)
+          }
+        >
+          <div className="flex items-center rounded-md bg-background/95 p-0.5 text-muted-foreground shadow-sm ring-1 ring-foreground/10 backdrop-blur-sm">
+            <button
+              type="button"
+              className="flex size-6 items-center justify-center rounded-sm outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+              contentEditable={false}
+              draggable={false}
+              aria-label="Add block below"
+              title="Add block below"
+              onMouseDown={(event) => event.preventDefault()}
+              onDragStart={(event) => event.preventDefault()}
+              onClick={addBlockAfterHoveredBlock}
+            >
+              <HugeiconsIcon icon={Add01Icon} strokeWidth={2} />
+            </button>
+            <button
+              type="button"
+              className="flex size-6 cursor-grab items-center justify-center rounded-sm outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:cursor-grabbing"
+              contentEditable={false}
+              aria-label="Drag block"
+              title="Drag to reorder block"
+            >
+              <HugeiconsIcon icon={DragDropVerticalIcon} strokeWidth={2} />
+            </button>
+          </div>
+        </DragHandle>
+      ) : null}
+      <EditorContent editor={activeEditor} />
     </div>
   )
 }

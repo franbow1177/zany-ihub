@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useChat } from "@ai-sdk/react"
 import {
-  AiChat02Icon,
   AiUserIcon,
   ArrowUp02Icon,
   StopIcon,
@@ -11,9 +10,7 @@ import { useQuery, useZero } from "@rocicorp/zero/react"
 import { mutators } from "@workspace/zero/mutators"
 import { queries } from "@workspace/zero/queries"
 import { DefaultChatTransport, type UIMessage } from "ai"
-import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
-import { Card } from "@workspace/ui/components/card"
 import {
   Select,
   SelectContent,
@@ -36,6 +33,8 @@ import {
   type AiChatContent,
   type Resource,
 } from "@/lib/api"
+import { RESOURCE_KIND_CONFIG } from "@/lib/resource-kind"
+import { ResourcePageHeader } from "./resource-page-header"
 
 function messageText(message: UIMessage) {
   return message.parts
@@ -47,9 +46,11 @@ function messageText(message: UIMessage) {
 function ChatSession({
   resource,
   content,
+  compact = false,
 }: {
   resource: Resource
   content: AiChatContent
+  compact?: boolean
 }) {
   const zero = useZero()
   const [input, setInput] = useState("")
@@ -121,36 +122,34 @@ function ChatSession({
   }
 
   return (
-    <div className="flex h-[calc(100svh-5.5rem)] min-h-[30rem] flex-col gap-4 sm:h-[calc(100svh-6.5rem)] lg:h-[calc(100svh-7.5rem)]">
-      <div className="flex shrink-0 items-end justify-between gap-3">
-        <div className="min-w-0">
-          <p className="mb-1 text-sm text-muted-foreground">AI chat</p>
-          <h1 className="truncate text-2xl font-semibold tracking-tight sm:text-3xl">
-            {resource.name}
-          </h1>
-          {resource.description && (
-            <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">
-              {resource.description}
-            </p>
-          )}
-        </div>
-        <Badge variant={activeModel?.available ? "secondary" : "outline"}>
-          {activeModel?.available ? "OpenRouter ready" : "OpenRouter key required"}
-        </Badge>
-      </div>
+    <div
+      className={
+        compact
+          ? "flex h-full min-h-0 flex-col gap-3"
+          : "flex h-[calc(100svh-5.5rem)] min-h-[30rem] flex-col gap-4 sm:h-[calc(100svh-6.5rem)] lg:h-[calc(100svh-7.5rem)]"
+      }
+    >
+      {!compact && (
+        <ResourcePageHeader resource={resource} className="shrink-0" />
+      )}
 
-      <Card className="min-h-0 flex-1 gap-0 py-0">
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {messages.length === 0 ? (
             <div className="grid h-full min-h-64 place-items-center text-center">
               <div className="max-w-sm space-y-3">
                 <span className="mx-auto flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-                  <HugeiconsIcon icon={AiChat02Icon} className="size-6" strokeWidth={1.8} />
+                  <HugeiconsIcon
+                    icon={RESOURCE_KIND_CONFIG["ai-chat"].icon}
+                    className="size-6"
+                    strokeWidth={1.8}
+                  />
                 </span>
                 <div>
                   <h2 className="font-medium">Start a conversation</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Choose a model or workspace agent below, then send a message.
+                    Choose a model or workspace agent below, then send a
+                    message.
                   </p>
                 </div>
               </div>
@@ -175,7 +174,11 @@ function ChatSession({
                             className="size-4"
                           />
                         ) : (
-                          <HugeiconsIcon icon={AiChat02Icon} className="size-4" strokeWidth={2} />
+                          <HugeiconsIcon
+                            icon={RESOURCE_KIND_CONFIG["ai-chat"].icon}
+                            className="size-4"
+                            strokeWidth={2}
+                          />
                         )}
                       </span>
                     )}
@@ -195,7 +198,11 @@ function ChatSession({
               {status === "submitted" && (
                 <div className="flex items-center gap-3 text-sm text-muted-foreground">
                   <span className="flex size-8 items-center justify-center rounded-lg bg-muted">
-                    <HugeiconsIcon icon={AiChat02Icon} className="size-4 animate-pulse" strokeWidth={2} />
+                    <HugeiconsIcon
+                      icon={RESOURCE_KIND_CONFIG["ai-chat"].icon}
+                      className="size-4 animate-pulse"
+                      strokeWidth={2}
+                    />
                   </span>
                   Thinking…
                 </div>
@@ -205,7 +212,7 @@ function ChatSession({
           )}
         </div>
 
-        <div className="shrink-0 border-t bg-background p-3 sm:p-4">
+        <div className="shrink-0">
           <form className="mx-auto max-w-3xl space-y-2" onSubmit={submit}>
             <div className="flex items-center gap-2">
               <Select
@@ -213,21 +220,22 @@ function ChatSession({
                 disabled={isStreaming || isChangingTarget}
                 onValueChange={(value) => void changeTarget(String(value))}
               >
-                <SelectTrigger className="h-8 max-w-64 border-0 bg-muted/70 text-xs shadow-none">
-                  <SelectValue />
+                <SelectTrigger className="h-8 w-auto max-w-48 gap-1.5 border-0 bg-muted/70 px-2.5 text-xs shadow-none">
+                  <SelectValue>
+                    {selectedAgent?.name ??
+                      activeModel?.label ??
+                      activeModelId}
+                  </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent align="start" className="min-w-48">
                   <SelectGroup>
                     <SelectLabel>Models</SelectLabel>
                     {content.models.map((model) => (
                       <SelectItem key={model.id} value={`model:${model.id}`}>
-                        <span className="flex min-w-0 flex-col">
-                          <span>{model.label} · {model.tier}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {model.pricing}
-                            {!model.available ? " · key required" : ""}
-                          </span>
-                        </span>
+                        <span className="truncate">{model.label}</span>
+                        {!model.available && (
+                          <span className="text-muted-foreground"> · key</span>
+                        )}
                       </SelectItem>
                     ))}
                   </SelectGroup>
@@ -235,11 +243,14 @@ function ChatSession({
                     <>
                       <SelectSeparator />
                       <SelectGroup>
-                        <SelectLabel>Workspace agents</SelectLabel>
+                        <SelectLabel>Agents</SelectLabel>
                         {content.agents.map((agent) => (
-                          <SelectItem key={agent.id} value={`agent:${agent.id}`}>
+                          <SelectItem
+                            key={agent.id}
+                            value={`agent:${agent.id}`}
+                          >
                             <HugeiconsIcon icon={AiUserIcon} strokeWidth={2} />
-                            {agent.name}
+                            <span className="truncate">{agent.name}</span>
                           </SelectItem>
                         ))}
                       </SelectGroup>
@@ -247,10 +258,6 @@ function ChatSession({
                   )}
                 </SelectContent>
               </Select>
-              <span className="truncate text-xs text-muted-foreground">
-                {selectedAgent?.name ?? activeModel?.label ?? activeModelId}
-                {activeModel ? ` · ${activeModel.pricing}` : ""}
-              </span>
             </div>
 
             <div className="flex items-end gap-2 rounded-xl border bg-background p-2 shadow-xs focus-within:ring-3 focus-within:ring-ring/20">
@@ -287,7 +294,9 @@ function ChatSession({
                   type="submit"
                   size="icon"
                   aria-label="Send message"
-                  disabled={!input.trim() || !activeModel?.available || isChangingTarget}
+                  disabled={
+                    !input.trim() || !activeModel?.available || isChangingTarget
+                  }
                 >
                   <HugeiconsIcon icon={ArrowUp02Icon} strokeWidth={2} />
                 </Button>
@@ -300,12 +309,18 @@ function ChatSession({
             )}
           </form>
         </div>
-      </Card>
+      </div>
     </div>
   )
 }
 
-export function ResourceContentAiChat({ resource }: { resource: Resource }) {
+export function ResourceContentAiChat({
+  resource,
+  compact = false,
+}: {
+  resource: Resource
+  compact?: boolean
+}) {
   const [chat, chatState] = useQuery(queries.chats.byID({ id: resource.id }))
   const [agentRows = [], agentsState] = useQuery(
     queries.agents.byWorkspace({ workspaceId: resource.workspaceId })
@@ -350,7 +365,8 @@ export function ResourceContentAiChat({ resource }: { resource: Resource }) {
         setModels(next)
         setError(null)
       } catch (loadError) {
-        if (loadError instanceof Error && loadError.name === "AbortError") return
+        if (loadError instanceof Error && loadError.name === "AbortError")
+          return
         setError(
           loadError instanceof Error
             ? loadError.message
@@ -371,12 +387,27 @@ export function ResourceContentAiChat({ resource }: { resource: Resource }) {
         : null
 
   if (!content && !error && !queryError) {
-    return <Skeleton className="h-[calc(100svh-7.5rem)] min-h-[30rem] rounded-xl" />
+    return (
+      <Skeleton
+        className={
+          compact
+            ? "h-full min-h-64 rounded-xl"
+            : "h-[calc(100svh-7.5rem)] min-h-[30rem] rounded-xl"
+        }
+      />
+    )
   }
 
   if (!content) {
     return <p className="text-sm text-destructive">{error || queryError}</p>
   }
 
-  return <ChatSession key={resource.id} resource={resource} content={content} />
+  return (
+    <ChatSession
+      key={resource.id}
+      resource={resource}
+      content={content}
+      compact={compact}
+    />
+  )
 }

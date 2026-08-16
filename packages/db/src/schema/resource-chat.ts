@@ -33,7 +33,7 @@ export const resourceChat = pgTable(
       .notNull(),
   },
   (table) => [
-    uniqueIndex("resource_chat_target_uidx")
+    index("resource_chat_target_idx")
       .on(table.targetResourceId)
       .where(sql`${table.type} = 'thread'`),
     uniqueIndex("resource_chat_direct_key_uidx")

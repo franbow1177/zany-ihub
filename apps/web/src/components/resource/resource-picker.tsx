@@ -58,6 +58,7 @@ export function ResourcePicker({
   placeholder = "Choose a resource",
   searchPlaceholder = "Search resources…",
   disabled = false,
+  id,
 }: {
   resources: Resource[]
   value: string | null
@@ -68,6 +69,7 @@ export function ResourcePicker({
   placeholder?: string
   searchPlaceholder?: string
   disabled?: boolean
+  id?: string
 }) {
   const [open, setOpen] = useState(false)
   const resourcesById = useMemo(
@@ -118,6 +120,7 @@ export function ResourcePicker({
       <PopoverTrigger
         render={
           <Button
+            id={id}
             type="button"
             variant="outline"
             className="h-10 w-full justify-start px-3 font-normal"

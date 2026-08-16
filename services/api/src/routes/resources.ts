@@ -1,6 +1,7 @@
 import { assertParentIsFolder, db, schema } from "@workspace/db"
 import { and, count, eq, inArray, isNull, ne, or } from "drizzle-orm"
 import { Elysia, t } from "elysia"
+import { recordAuditEvent, requestId } from "../lib/audit"
 import { newId } from "../lib/ids"
 import { deleteObject, fileStorageKey, getObject, putObject } from "../lib/s3"
 import { getSessionUser } from "../lib/session"
@@ -177,10 +178,7 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
                   .from(schema.resourceChat)
                   .innerJoin(
                     schema.chatParticipant,
-                    eq(
-                      schema.chatParticipant.chatId,
-                      schema.resourceChat.id
-                    )
+                    eq(schema.chatParticipant.chatId, schema.resourceChat.id)
                   )
                   .where(
                     and(
@@ -210,6 +208,7 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
     async ({ body, params, request, set }) => {
       const sessionUser = await getSessionUser(request)
       if (!sessionUser) return unauthorized(set)
+      const auditRequestId = requestId(request)
 
       const membership = await findMembership(params.id, sessionUser.id)
       if (!membership) return forbidden(set)
@@ -295,7 +294,25 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
 
         if (!resource) throw new Error("Resource insert returned no row")
 
-        if (body.kind === "file") {
+        if (body.kind === "doc") {
+          await tx.insert(schema.resourceDocument).values({ id })
+        } else if (body.kind === "table") {
+          await tx.insert(schema.resourceTable).values({
+            id,
+            data: {
+              ...schema.defaultResourceTableData,
+              rows: [
+                {
+                  id: `${id}-row-1`,
+                  name: "",
+                  status: "Not started",
+                  owner: "",
+                  updated: "",
+                },
+              ],
+            },
+          })
+        } else if (body.kind === "file") {
           await tx.insert(schema.resourceFile).values({ id })
         } else if (body.kind === "whiteboard") {
           await tx.insert(schema.resourceWhiteboard).values({ id })
@@ -320,6 +337,16 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
             }))
           )
         }
+        await recordAuditEvent(tx, {
+          workspaceId: params.id,
+          actorId: sessionUser.id,
+          action: "resource.created",
+          targetType: "resource",
+          targetId: resource.id,
+          targetLabel: resource.name,
+          metadata: { kind: resource.kind, parentId: resource.parentId },
+          requestId: auditRequestId,
+        })
 
         return resource
       })
@@ -374,6 +401,7 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
   .post("/resources/:id/upload", async ({ params, request, set }) => {
     const sessionUser = await getSessionUser(request)
     if (!sessionUser) return unauthorized(set)
+    const auditRequestId = requestId(request)
 
     const resource = await findResource(params.id)
     if (!resource) return notFound(set)
@@ -407,23 +435,38 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
     })
 
     const existing = await findResourceFile(resource.id)
-    if (!existing) {
-      await db.insert(schema.resourceFile).values({ id: resource.id })
-    }
-
-    const [updated] = await db
-      .update(schema.resourceFile)
-      .set({
-        storageKey: key,
-        mimeType,
-        sizeBytes: bytes.byteLength,
-        originalName: uploaded.name,
-        updatedAt: new Date(),
+    const updated = await db.transaction(async (tx) => {
+      if (!existing) {
+        await tx.insert(schema.resourceFile).values({ id: resource.id })
+      }
+      const [written] = await tx
+        .update(schema.resourceFile)
+        .set({
+          storageKey: key,
+          mimeType,
+          sizeBytes: bytes.byteLength,
+          originalName: uploaded.name,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.resourceFile.id, resource.id))
+        .returning()
+      if (!written) throw new Error("resource_file update returned no row")
+      await recordAuditEvent(tx, {
+        workspaceId: resource.workspaceId,
+        actorId: sessionUser.id,
+        action: existing?.storageKey ? "file.replaced" : "file.uploaded",
+        targetType: "resource",
+        targetId: resource.id,
+        targetLabel: resource.name,
+        metadata: {
+          mimeType,
+          sizeBytes: bytes.byteLength,
+          originalName: uploaded.name,
+        },
+        requestId: auditRequestId,
       })
-      .where(eq(schema.resourceFile.id, resource.id))
-      .returning()
-
-    if (!updated) throw new Error("resource_file update returned no row")
+      return written
+    })
     return serializeFile(updated)
   })
   .get("/resources/:id/download", async ({ params, request, set }) => {
@@ -476,6 +519,7 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
     async ({ body, params, request, set }) => {
       const sessionUser = await getSessionUser(request)
       if (!sessionUser) return unauthorized(set)
+      const auditRequestId = requestId(request)
 
       const resource = await findResource(params.id)
       if (!resource) return notFound(set)
@@ -497,9 +541,13 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
           .from(schema.resourceChat)
           .where(eq(schema.resourceChat.id, resource.id))
           .limit(1)
-        if (!chat || chat.type !== "channel") {
+        if (!chat || chat.type === "dm") {
           set.status = 400
-          return { error: "Only channels have editable resource settings" }
+          return { error: "Direct messages do not have editable settings" }
+        }
+        if (chat.type === "thread" && body.parentId) {
+          set.status = 400
+          return { error: "Attached threads cannot move into folders" }
         }
       }
 
@@ -527,13 +575,63 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
       }
       if (body.icon !== undefined) changes.icon = body.icon?.trim() || null
 
-      const [updated] = await db
-        .update(schema.resource)
-        .set(changes)
-        .where(eq(schema.resource.id, resource.id))
-        .returning()
+      const updated = await db.transaction(async (tx) => {
+        const [written] = await tx
+          .update(schema.resource)
+          .set(changes)
+          .where(eq(schema.resource.id, resource.id))
+          .returning()
+        if (!written) throw new Error("Resource update returned no row")
 
-      if (!updated) throw new Error("Resource update returned no row")
+        if (body.name !== undefined && written.name !== resource.name) {
+          await recordAuditEvent(tx, {
+            workspaceId: resource.workspaceId,
+            actorId: sessionUser.id,
+            action: "resource.renamed",
+            targetType: "resource",
+            targetId: resource.id,
+            targetLabel: written.name,
+            changes: { name: { from: resource.name, to: written.name } },
+            metadata: { kind: resource.kind },
+            requestId: auditRequestId,
+          })
+        }
+        if (
+          body.parentId !== undefined &&
+          written.parentId !== resource.parentId
+        ) {
+          await recordAuditEvent(tx, {
+            workspaceId: resource.workspaceId,
+            actorId: sessionUser.id,
+            action: "resource.moved",
+            targetType: "resource",
+            targetId: resource.id,
+            targetLabel: written.name,
+            changes: {
+              parentId: { from: resource.parentId, to: written.parentId },
+            },
+            metadata: { kind: resource.kind },
+            requestId: auditRequestId,
+          })
+        }
+        const fields = [
+          body.description !== undefined ? "description" : null,
+          body.icon !== undefined ? "icon" : null,
+        ].filter((field): field is string => field !== null)
+        if (fields.length > 0) {
+          await recordAuditEvent(tx, {
+            workspaceId: resource.workspaceId,
+            actorId: sessionUser.id,
+            action: "resource.metadata_changed",
+            targetType: "resource",
+            targetId: resource.id,
+            targetLabel: written.name,
+            metadata: { kind: resource.kind, fields },
+            requestId: auditRequestId,
+          })
+        }
+        return written
+      })
       return updated
     },
     {
@@ -548,6 +646,7 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
   .delete("/resources/:id", async ({ params, request, set }) => {
     const sessionUser = await getSessionUser(request)
     if (!sessionUser) return unauthorized(set)
+    const auditRequestId = requestId(request)
 
     const resource = await findResource(params.id)
     if (!resource) return notFound(set)
@@ -604,7 +703,7 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
       }
     }
 
-    const [deleted] = await db.transaction(async (tx) => {
+    const deleted = await db.transaction(async (tx) => {
       const attachedThreads = await tx
         .select({ id: schema.resourceChat.id })
         .from(schema.resourceChat)
@@ -619,10 +718,25 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
         )
       }
 
-      return tx
+      const [deleted] = await tx
         .delete(schema.resource)
         .where(eq(schema.resource.id, resource.id))
         .returning()
+      if (!deleted) return undefined
+      await recordAuditEvent(tx, {
+        workspaceId: resource.workspaceId,
+        actorId: sessionUser.id,
+        action: "resource.deleted",
+        targetType: "resource",
+        targetId: resource.id,
+        targetLabel: resource.name,
+        metadata: {
+          kind: resource.kind,
+          attachedThreadCount: attachedThreads.length,
+        },
+        requestId: auditRequestId,
+      })
+      return deleted
     })
 
     if (!deleted) throw new Error("Resource delete returned no row")

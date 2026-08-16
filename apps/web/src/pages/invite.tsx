@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { UserGroupIcon } from "@hugeicons/core-free-icons"
+import { Mail01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
@@ -8,6 +8,7 @@ import { Button } from "@workspace/ui/components/button"
 import { AppShell } from "@/components/app-shell"
 import { apiFetch, type InvitationPreview, type Workspace } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
+import { WORKSPACE_NAV_CONFIG } from "@/lib/resource-kind"
 
 export function InvitePage() {
   const { token = "" } = useParams()
@@ -82,7 +83,12 @@ export function InvitePage() {
   }
 
   return (
-    <AppShell title="Workspace invitation" backTo="/" backLabel="Workspaces">
+    <AppShell
+      title="Workspace invitation"
+      icon={<HugeiconsIcon icon={Mail01Icon} strokeWidth={2} />}
+      backTo="/"
+      backLabel="Workspaces"
+    >
       {isLoading || isPending ? (
         <p className="text-sm text-muted-foreground">Opening invitation…</p>
       ) : error && !preview ? (
@@ -94,7 +100,10 @@ export function InvitePage() {
         <section className="space-y-5 rounded-xl border bg-card p-6 shadow-sm">
           <div className="flex items-start gap-4">
             <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted">
-              <HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />
+              <HugeiconsIcon
+                icon={WORKSPACE_NAV_CONFIG.members.icon}
+                strokeWidth={2}
+              />
             </span>
             <div className="min-w-0 flex-1 space-y-1">
               <div className="flex flex-wrap items-center gap-2">

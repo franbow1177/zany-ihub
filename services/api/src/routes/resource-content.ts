@@ -1,6 +1,7 @@
 import { db, schema, type WhiteboardScene } from "@workspace/db"
 import { and, asc, eq, max, sql } from "drizzle-orm"
 import { Elysia, t } from "elysia"
+import { recordAuditEvent, requestId } from "../lib/audit"
 import { newId } from "../lib/ids"
 import { getObject, putObject, whiteboardAssetStorageKey } from "../lib/s3"
 import { getSessionUser } from "../lib/session"
@@ -319,14 +320,39 @@ export const resourceContentRoutes = new Elysia({
       if (access.resource.kind !== "project") {
         return error(set, 400, "Resource is not a project")
       }
-
-      const [project] = await db
-        .update(schema.resourceProject)
-        .set({ ...body, updatedAt: new Date() })
+      const [previous] = await db
+        .select()
+        .from(schema.resourceProject)
         .where(eq(schema.resourceProject.id, params.id))
-        .returning()
+        .limit(1)
+      if (!previous) return error(set, 404, "Project content not found")
+      const auditRequestId = requestId(request)
+      const project = await db.transaction(async (tx) => {
+        const [written] = await tx
+          .update(schema.resourceProject)
+          .set({ ...body, updatedAt: new Date() })
+          .where(eq(schema.resourceProject.id, params.id))
+          .returning()
+        if (!written) return null
+        await tx
+          .update(schema.resource)
+          .set({ updatedAt: new Date() })
+          .where(eq(schema.resource.id, params.id))
+        if (body.status !== undefined && body.status !== previous.status) {
+          await recordAuditEvent(tx, {
+            workspaceId: access.resource.workspaceId,
+            actorId: access.sessionUser.id,
+            action: "project.status_changed",
+            targetType: "resource",
+            targetId: params.id,
+            targetLabel: access.resource.name,
+            changes: { status: { from: previous.status, to: body.status } },
+            requestId: auditRequestId,
+          })
+        }
+        return written
+      })
       if (!project) return error(set, 404, "Project content not found")
-      await touchResource(params.id)
       return project
     },
     {
@@ -346,25 +372,43 @@ export const resourceContentRoutes = new Elysia({
         return error(set, 400, "Resource is not a project")
       }
       if (!body.title.trim()) return error(set, 400, "Task title is required")
+      const auditRequestId = requestId(request)
 
       const [positionResult] = await db
         .select({ value: max(schema.projectTask.position) })
         .from(schema.projectTask)
         .where(eq(schema.projectTask.projectId, params.id))
 
-      const [task] = await db
-        .insert(schema.projectTask)
-        .values({
-          id: newId(),
-          projectId: params.id,
-          title: body.title.trim(),
-          description: body.description?.trim() || null,
-          status: body.status ?? "todo",
-          position: (positionResult?.value ?? -1) + 1,
-          createdBy: access.sessionUser.id,
+      const task = await db.transaction(async (tx) => {
+        const [written] = await tx
+          .insert(schema.projectTask)
+          .values({
+            id: newId(),
+            projectId: params.id,
+            title: body.title.trim(),
+            description: body.description?.trim() || null,
+            status: body.status ?? "todo",
+            position: (positionResult?.value ?? -1) + 1,
+            createdBy: access.sessionUser.id,
+          })
+          .returning()
+        if (!written) throw new Error("Task insert returned no row")
+        await tx
+          .update(schema.resource)
+          .set({ updatedAt: new Date() })
+          .where(eq(schema.resource.id, params.id))
+        await recordAuditEvent(tx, {
+          workspaceId: access.resource.workspaceId,
+          actorId: access.sessionUser.id,
+          action: "task.created",
+          targetType: "task",
+          targetId: written.id,
+          targetLabel: written.title,
+          metadata: { projectId: params.id, status: written.status },
+          requestId: auditRequestId,
         })
-        .returning()
-      await touchResource(params.id)
+        return written
+      })
       return task
     },
     {
@@ -395,6 +439,7 @@ export const resourceContentRoutes = new Elysia({
       if (body.title !== undefined && !body.title.trim()) {
         return error(set, 400, "Task title is required")
       }
+      const auditRequestId = requestId(request)
 
       const changes: {
         title?: string
@@ -410,12 +455,32 @@ export const resourceContentRoutes = new Elysia({
       if (body.status !== undefined) changes.status = body.status
       if (body.position !== undefined) changes.position = body.position
 
-      const [task] = await db
-        .update(schema.projectTask)
-        .set(changes)
-        .where(eq(schema.projectTask.id, params.taskId))
-        .returning()
-      await touchResource(existing.projectId)
+      const task = await db.transaction(async (tx) => {
+        const [written] = await tx
+          .update(schema.projectTask)
+          .set(changes)
+          .where(eq(schema.projectTask.id, params.taskId))
+          .returning()
+        if (!written) return null
+        await tx
+          .update(schema.resource)
+          .set({ updatedAt: new Date() })
+          .where(eq(schema.resource.id, existing.projectId))
+        if (body.status !== undefined && body.status !== existing.status) {
+          await recordAuditEvent(tx, {
+            workspaceId: access.resource.workspaceId,
+            actorId: access.sessionUser.id,
+            action: "task.status_changed",
+            targetType: "task",
+            targetId: existing.id,
+            targetLabel: written.title,
+            changes: { status: { from: existing.status, to: body.status } },
+            metadata: { projectId: existing.projectId },
+            requestId: auditRequestId,
+          })
+        }
+        return written
+      })
       return task
     },
     {
@@ -442,12 +507,29 @@ export const resourceContentRoutes = new Elysia({
     if (access.failure) {
       return error(set, access.failure.status, access.failure.message)
     }
-
-    const [task] = await db
-      .delete(schema.projectTask)
-      .where(eq(schema.projectTask.id, params.taskId))
-      .returning()
-    await touchResource(existing.projectId)
+    const auditRequestId = requestId(request)
+    const task = await db.transaction(async (tx) => {
+      const [written] = await tx
+        .delete(schema.projectTask)
+        .where(eq(schema.projectTask.id, params.taskId))
+        .returning()
+      if (!written) return null
+      await tx
+        .update(schema.resource)
+        .set({ updatedAt: new Date() })
+        .where(eq(schema.resource.id, existing.projectId))
+      await recordAuditEvent(tx, {
+        workspaceId: access.resource.workspaceId,
+        actorId: access.sessionUser.id,
+        action: "task.deleted",
+        targetType: "task",
+        targetId: existing.id,
+        targetLabel: existing.title,
+        metadata: { projectId: existing.projectId },
+        requestId: auditRequestId,
+      })
+      return written
+    })
     return task
   })
   .get("/resources/:id/bookmark", async ({ params, request, set }) => {
@@ -499,6 +581,13 @@ export const resourceContentRoutes = new Elysia({
       if (access.resource.kind !== "bookmark") {
         return error(set, 400, "Resource is not a bookmark")
       }
+      const [previous] = await db
+        .select()
+        .from(schema.resourceBookmark)
+        .where(eq(schema.resourceBookmark.id, params.id))
+        .limit(1)
+      if (!previous) return error(set, 404, "Bookmark content not found")
+      const auditRequestId = requestId(request)
 
       let targetResourceId: string | null = null
       let externalUrl: string | null = null
@@ -523,13 +612,35 @@ export const resourceContentRoutes = new Elysia({
         }
       }
 
-      const [bookmark] = await db
-        .update(schema.resourceBookmark)
-        .set({ targetResourceId, externalUrl, updatedAt: new Date() })
-        .where(eq(schema.resourceBookmark.id, params.id))
-        .returning()
+      const bookmark = await db.transaction(async (tx) => {
+        const [written] = await tx
+          .update(schema.resourceBookmark)
+          .set({ targetResourceId, externalUrl, updatedAt: new Date() })
+          .where(eq(schema.resourceBookmark.id, params.id))
+          .returning()
+        if (!written) return null
+        await tx
+          .update(schema.resource)
+          .set({ updatedAt: new Date() })
+          .where(eq(schema.resource.id, params.id))
+        await recordAuditEvent(tx, {
+          workspaceId: access.resource.workspaceId,
+          actorId: access.sessionUser.id,
+          action: "bookmark.target_changed",
+          targetType: "resource",
+          targetId: params.id,
+          targetLabel: access.resource.name,
+          changes: {
+            targetType: {
+              from: previous.targetResourceId ? "resource" : "url",
+              to: targetResourceId ? "resource" : "url",
+            },
+          },
+          requestId: auditRequestId,
+        })
+        return written
+      })
       if (!bookmark) return error(set, 404, "Bookmark content not found")
-      await touchResource(params.id)
       return bookmark
     },
     { body: t.Object({ target: bookmarkTarget }) }

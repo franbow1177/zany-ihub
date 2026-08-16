@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
-import { useNavigate, useParams } from "react-router-dom"
-import { Delete02Icon, UserGroupIcon } from "@hugeicons/core-free-icons"
+import { Link, useNavigate, useParams } from "react-router-dom"
+import { Delete02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   AlertDialog,
@@ -19,7 +19,7 @@ import {
   AvatarImage,
 } from "@workspace/ui/components/avatar"
 import { Badge } from "@workspace/ui/components/badge"
-import { Button } from "@workspace/ui/components/button"
+import { Button, buttonVariants } from "@workspace/ui/components/button"
 import {
   Select,
   SelectContent,
@@ -31,9 +31,11 @@ import { Skeleton } from "@workspace/ui/components/skeleton"
 
 import { InviteMemberDialog } from "@/components/workspace/workspace-members"
 import { WorkspaceShell } from "@/components/workspace/workspace-shell"
+import { PageHeader } from "@/components/page-header"
 import { useWorkspaceShellData } from "@/hooks/use-workspace-shell-data"
 import { apiFetch, type WorkspaceMember } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
+import { WORKSPACE_NAV_CONFIG } from "@/lib/resource-kind"
 
 function initials(name: string, email: string) {
   return (name.trim() || email)
@@ -128,18 +130,28 @@ export function MembersPage() {
       isLoading={shell.isLoading}
     >
       <div className="space-y-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="mb-1 text-sm text-muted-foreground">Workspace</p>
-            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-              Members
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Manage who belongs to {shell.workspace?.name ?? "this workspace"}.
-            </p>
-          </div>
-          {canManage && <InviteMemberDialog workspaceId={workspaceId} />}
-        </div>
+        <PageHeader
+          icon={
+            <HugeiconsIcon
+              icon={WORKSPACE_NAV_CONFIG.members.icon}
+              strokeWidth={2}
+            />
+          }
+          title={WORKSPACE_NAV_CONFIG.members.label}
+          actions={
+            canManage && (
+              <>
+                <Link
+                  className={buttonVariants({ variant: "outline" })}
+                  to={`/workspace/${workspaceId}/audit`}
+                >
+                  Audit log
+                </Link>
+                <InviteMemberDialog workspaceId={workspaceId} />
+              </>
+            )
+          }
+        />
 
         {(error || shell.error) && (
           <p
@@ -213,7 +225,7 @@ export function MembersPage() {
                         <Button
                           type="button"
                           variant="ghost"
-                          size="icon-sm"
+                          size="icon"
                           disabled={busyMemberId === member.id}
                           aria-label={`Remove ${member.name || member.email}`}
                           onClick={() => setRemoveMember(member)}
@@ -241,7 +253,10 @@ export function MembersPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogMedia>
-              <HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />
+              <HugeiconsIcon
+                icon={WORKSPACE_NAV_CONFIG.members.icon}
+                strokeWidth={2}
+              />
             </AlertDialogMedia>
             <AlertDialogTitle>
               Remove {removeMember?.name || removeMember?.email}?

@@ -2,19 +2,29 @@ import { db, schema } from "@workspace/db"
 import {
   convertToModelMessages,
   createUIMessageStreamResponse,
+  type InferUITools,
   safeValidateUIMessages,
+  stepCountIs,
   streamText,
   toUIMessageStream,
   type UIMessage,
 } from "ai"
 import { asc, eq } from "drizzle-orm"
 import { Elysia, t } from "elysia"
+import { isKnownAiModel, listAiModels, resolveAiModel } from "../lib/ai-models"
 import {
-  isKnownAiModel,
-  listAiModels,
-  resolveAiModel,
-} from "../lib/ai-models"
+  AI_WORKSPACE_TOOL_INSTRUCTIONS,
+  createWorkspaceTools,
+} from "../lib/ai-workspace-tools"
+import { recordAuditEvent, requestId } from "../lib/audit"
 import { getSessionUser } from "../lib/session"
+
+type WorkspaceTools = ReturnType<typeof createWorkspaceTools>
+type WorkspaceChatMessage = UIMessage<
+  unknown,
+  never,
+  InferUITools<WorkspaceTools>
+>
 
 type StatusSet = { status?: number | string }
 
@@ -151,6 +161,9 @@ export const aiResourceRoutes = new Elysia({ name: "ai-resource-routes" })
       if (body.model !== undefined && !isKnownAiModel(body.model)) {
         return failure(set, 400, "Unknown AI model")
       }
+      const previous = await findAgent(params.id)
+      if (!previous) return failure(set, 404, "Agent content not found")
+      const auditRequestId = requestId(request)
 
       const changes: {
         model?: string
@@ -166,13 +179,43 @@ export const aiResourceRoutes = new Elysia({ name: "ai-resource-routes" })
         changes.systemPrompt = body.systemPrompt?.trim() || null
       }
 
-      const [agent] = await db
-        .update(schema.resourceAgent)
-        .set(changes)
-        .where(eq(schema.resourceAgent.id, params.id))
-        .returning()
+      const agent = await db.transaction(async (tx) => {
+        const [written] = await tx
+          .update(schema.resourceAgent)
+          .set(changes)
+          .where(eq(schema.resourceAgent.id, params.id))
+          .returning()
+        if (!written) return null
+        await tx
+          .update(schema.resource)
+          .set({ updatedAt: new Date() })
+          .where(eq(schema.resource.id, params.id))
+        const fields = [
+          body.model !== undefined && body.model !== previous.model
+            ? "model"
+            : null,
+          body.persona !== undefined ? "persona" : null,
+          body.systemPrompt !== undefined ? "systemPrompt" : null,
+        ].filter((field): field is string => field !== null)
+        if (fields.length > 0) {
+          await recordAuditEvent(tx, {
+            workspaceId: access.resource.workspaceId,
+            actorId: access.sessionUser.id,
+            action: "agent.configuration_changed",
+            targetType: "resource",
+            targetId: params.id,
+            targetLabel: access.resource.name,
+            changes:
+              body.model !== undefined && body.model !== previous.model
+                ? { model: { from: previous.model, to: body.model } }
+                : {},
+            metadata: { fields },
+            requestId: auditRequestId,
+          })
+        }
+        return written
+      })
       if (!agent) return failure(set, 404, "Agent content not found")
-      await touchResource(params.id)
       return agent
     },
     {
@@ -215,9 +258,19 @@ export const aiResourceRoutes = new Elysia({ name: "ai-resource-routes" })
       if (access.resource.kind !== "ai-chat") {
         return failure(set, 400, "Resource is not an AI chat")
       }
+      const [previous] = await db
+        .select()
+        .from(schema.resourceAiChat)
+        .where(eq(schema.resourceAiChat.id, params.id))
+        .limit(1)
+      if (!previous) return failure(set, 404, "AI chat content not found")
+      const auditRequestId = requestId(request)
 
-      const changes: { model?: string; agentId?: string | null; updatedAt: Date } =
-        { updatedAt: new Date() }
+      const changes: {
+        model?: string
+        agentId?: string | null
+        updatedAt: Date
+      } = { updatedAt: new Date() }
       if (body.target.type === "model") {
         if (!isKnownAiModel(body.target.model)) {
           return failure(set, 400, "Unknown AI model")
@@ -232,13 +285,40 @@ export const aiResourceRoutes = new Elysia({ name: "ai-resource-routes" })
         changes.agentId = agent.id
       }
 
-      const [chat] = await db
-        .update(schema.resourceAiChat)
-        .set(changes)
-        .where(eq(schema.resourceAiChat.id, params.id))
-        .returning()
+      const chat = await db.transaction(async (tx) => {
+        const [written] = await tx
+          .update(schema.resourceAiChat)
+          .set(changes)
+          .where(eq(schema.resourceAiChat.id, params.id))
+          .returning()
+        if (!written) return null
+        await tx
+          .update(schema.resource)
+          .set({ updatedAt: new Date() })
+          .where(eq(schema.resource.id, params.id))
+        await recordAuditEvent(tx, {
+          workspaceId: access.resource.workspaceId,
+          actorId: access.sessionUser.id,
+          action: "ai_chat.target_changed",
+          targetType: "resource",
+          targetId: params.id,
+          targetLabel: access.resource.name,
+          changes: {
+            target: {
+              from: previous.agentId
+                ? { type: "agent", id: previous.agentId }
+                : { type: "model", id: previous.model },
+              to:
+                body.target.type === "agent"
+                  ? { type: "agent", id: body.target.agentId }
+                  : { type: "model", id: body.target.model },
+            },
+          },
+          requestId: auditRequestId,
+        })
+        return written
+      })
       if (!chat) return failure(set, 404, "AI chat content not found")
-      await touchResource(params.id)
       return chat
     },
     { body: t.Object({ target: chatTarget }) }
@@ -261,23 +341,34 @@ export const aiResourceRoutes = new Elysia({ name: "ai-resource-routes" })
         .limit(1)
       if (!chat) return failure(set, 404, "AI chat content not found")
 
-      const validation = await safeValidateUIMessages<UIMessage>({
+      const workspaceTools = createWorkspaceTools({
+        workspaceId: access.resource.workspaceId,
+        actorId: access.sessionUser.id,
+        requestId: requestId(request),
+      })
+
+      const validation = await safeValidateUIMessages<WorkspaceChatMessage>({
         messages: body.messages,
+        tools: workspaceTools,
       })
       if (!validation.success) {
         return failure(set, 400, "Invalid chat messages")
       }
 
       let modelId = chat.model
-      let instructions: string | undefined
+      let agentPrompt: string | undefined
       if (chat.agentId) {
         const agent = await findAgent(chat.agentId)
         if (!agent || agent.workspaceId !== access.resource.workspaceId) {
           return failure(set, 400, "Selected agent is unavailable")
         }
         modelId = agent.model
-        instructions = agentInstructions(agent) || undefined
+        agentPrompt = agentInstructions(agent) || undefined
       }
+
+      const instructions = [agentPrompt, AI_WORKSPACE_TOOL_INSTRUCTIONS]
+        .filter(Boolean)
+        .join("\n\n")
 
       const resolved = resolveAiModel(modelId)
       if (!resolved.ok) return failure(set, 503, resolved.error)
@@ -285,10 +376,15 @@ export const aiResourceRoutes = new Elysia({ name: "ai-resource-routes" })
       const result = streamText({
         model: resolved.model,
         system: instructions,
-        messages: await convertToModelMessages(validation.data),
+        messages: await convertToModelMessages(validation.data, {
+          tools: workspaceTools,
+        }),
+        tools: workspaceTools,
+        stopWhen: stepCountIs(6),
       })
       const stream = toUIMessageStream({
         stream: result.stream,
+        tools: workspaceTools,
         originalMessages: validation.data,
         onEnd: async ({ messages }) => {
           await db

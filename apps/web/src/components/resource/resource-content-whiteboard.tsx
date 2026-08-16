@@ -10,8 +10,6 @@ import type { FileId } from "@excalidraw/excalidraw/element/types"
 import { useQuery, useZero } from "@rocicorp/zero/react"
 import { mutators } from "@workspace/zero/mutators"
 import { queries } from "@workspace/zero/queries"
-import { Badge } from "@workspace/ui/components/badge"
-import { Card, CardContent } from "@workspace/ui/components/card"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 
 import { useTheme } from "@/components/theme-provider"
@@ -21,6 +19,7 @@ import {
   type Resource,
   type WhiteboardScene,
 } from "@/lib/api"
+import { ResourcePageHeader } from "./resource-page-header"
 
 type PendingSave = {
   scene: WhiteboardScene
@@ -199,16 +198,19 @@ export function ResourceContentWhiteboard({
     whiteboardState.type === "error" ? whiteboardState.error.message : null
 
   if (!initialData && status === "loading" && !queryError) {
-    return <Skeleton className="h-[70vh] min-h-[34rem] w-full rounded-xl" />
+    return (
+      <div className="flex h-[calc(100svh-5.5rem)] min-h-[34rem] flex-col gap-4 sm:h-[calc(100svh-6.5rem)] lg:h-[calc(100svh-7.5rem)]">
+        <Skeleton className="h-14 w-full shrink-0" />
+        <Skeleton className="min-h-0 flex-1 rounded-xl" />
+      </div>
+    )
   }
 
   if (!initialData) {
     return (
-      <Card>
-        <CardContent className="p-6 text-sm text-destructive">
-          {error ?? queryError ?? "Could not load whiteboard"}
-        </CardContent>
-      </Card>
+      <p className="text-sm text-destructive">
+        {error ?? queryError ?? "Could not load whiteboard"}
+      </p>
     )
   }
 
@@ -220,31 +222,18 @@ export function ResourceContentWhiteboard({
       : theme
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <p className="mb-1 text-sm text-muted-foreground">Whiteboard</p>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-            {resource.name}
-          </h1>
-        </div>
-        <Badge variant={status === "error" ? "destructive" : "outline"}>
-          {status === "saving"
-            ? "Saving…"
-            : status === "error"
-              ? "Save failed"
-              : "Saved"}
-        </Badge>
-      </div>
+    <div className="flex h-[calc(100svh-5.5rem)] min-h-[34rem] flex-col gap-4 sm:h-[calc(100svh-6.5rem)] lg:h-[calc(100svh-7.5rem)]">
+      <ResourcePageHeader resource={resource} className="shrink-0" />
 
       {error && (
-        <p className="text-sm text-destructive" role="alert">
+        <p className="shrink-0 text-sm text-destructive" role="alert">
           {error}
         </p>
       )}
 
-      <Card className="h-[70vh] min-h-[34rem] overflow-hidden py-0">
-        <CardContent className="h-full p-0">
+      {/* Excalidraw sizes from its parent; absolute fill keeps it honest in flex layouts */}
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div className="absolute inset-0">
           <Excalidraw
             initialData={initialData}
             theme={resolvedTheme}
@@ -275,8 +264,8 @@ export function ResourceContentWhiteboard({
               timerRef.current = window.setTimeout(queuePendingSave, 600)
             }}
           />
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   )
 }

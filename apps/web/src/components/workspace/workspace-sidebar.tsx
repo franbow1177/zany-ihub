@@ -1,25 +1,21 @@
 import { useState } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import {
-  AiChat02Icon,
-  AiUserIcon,
-  Bookmark01Icon,
-  BubbleChatIcon,
+  Add01Icon,
   ChevronRightIcon,
   Clock01Icon,
-  DashboardSquare01Icon,
-  File01Icon,
-  Folder01Icon,
   Logout01Icon,
-  Note01Icon,
-  Table01Icon,
-  Task01Icon,
-  UserGroupIcon,
-  WhiteboardIcon,
 } from "@hugeicons/core-free-icons"
 import type { IconSvgElement } from "@hugeicons/react"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Avatar, AvatarFallback } from "@workspace/ui/components/avatar"
+import { useQuery, useZero } from "@rocicorp/zero/react"
+import { mutators } from "@workspace/zero/mutators"
+import { queries } from "@workspace/zero/queries"
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@workspace/ui/components/avatar"
 import { Button } from "@workspace/ui/components/button"
 import {
   Collapsible,
@@ -35,6 +31,7 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -43,26 +40,21 @@ import {
 } from "@workspace/ui/components/sidebar"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 
-import type { Resource, ResourceKind, Workspace } from "@/lib/api"
-import { authClient } from "@/lib/auth-client"
-import { ResourceKindIcon } from "@/components/resource/resource-kind-icon"
-import { WorkspacesDropdown } from "./workspaces-dropdown"
-
-const KIND_CONFIG: Record<
+import type {
+  Resource,
   ResourceKind,
-  { label: string; icon: IconSvgElement }
-> = {
-  folder: { label: "Folders", icon: Folder01Icon },
-  file: { label: "Files", icon: File01Icon },
-  doc: { label: "Docs", icon: Note01Icon },
-  table: { label: "Tables", icon: Table01Icon },
-  whiteboard: { label: "Whiteboards", icon: WhiteboardIcon },
-  project: { label: "Projects", icon: Task01Icon },
-  bookmark: { label: "Bookmarks", icon: Bookmark01Icon },
-  agent: { label: "Agents", icon: AiUserIcon },
-  "ai-chat": { label: "AI chats", icon: AiChat02Icon },
-  chat: { label: "Channels", icon: BubbleChatIcon },
-}
+  Workspace,
+  WorkspaceMember,
+} from "@/lib/api"
+import { authClient } from "@/lib/auth-client"
+import {
+  RESOURCE_KIND_CONFIG,
+  RESOURCE_KINDS,
+  WORKSPACE_NAV_CONFIG,
+} from "@/lib/resource-kind"
+import { ResourceKindIcon } from "@/components/resource/resource-kind-icon"
+import { ResourceFormSheet } from "@/components/resource/resource-form-sheet"
+import { WorkspacesDropdown } from "./workspaces-dropdown"
 
 function ResourceSubmenu({
   resources,
@@ -75,18 +67,18 @@ function ResourceSubmenu({
 }) {
   if (resources.length === 0) {
     return (
-      <p className="py-1 pr-2 pl-11 text-xs text-sidebar-foreground/45">
+      <p className="py-1 pr-0 pl-11 text-xs text-sidebar-foreground/45">
         Nothing here yet
       </p>
     )
   }
 
   return (
-    <SidebarMenuSub className="mx-0 gap-0 border-l-0 px-0 py-0 pl-2">
+    <SidebarMenuSub className="mx-0 gap-0 border-l-0 py-0 pr-0 pl-8">
       {resources.map((resource) => (
         <SidebarMenuSubItem key={resource.id}>
           <SidebarMenuSubButton
-            className="h-8 text-sm [&_svg]:size-4"
+            className="h-8 pr-0 text-sm [&_svg]:size-4"
             isActive={resource.id === activeResourceId}
             render={
               <Link to={`/workspace/${workspaceId}/resource/${resource.id}`} />
@@ -139,6 +131,9 @@ function CollapsibleResourceGroup({
   resources,
   workspaceId,
   activeResourceId,
+  createKind,
+  allResources,
+  members,
   defaultOpen = true,
 }: {
   label: string
@@ -146,26 +141,48 @@ function CollapsibleResourceGroup({
   resources: Resource[]
   workspaceId: string
   activeResourceId?: string
+  createKind?: ResourceKind
+  allResources?: Resource[]
+  members?: WorkspaceMember[]
   defaultOpen?: boolean
 }) {
+  const navigate = useNavigate()
   const [open, setOpen] = useState(defaultOpen)
+  const [createOpen, setCreateOpen] = useState(false)
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <SidebarMenu>
         <SidebarMenuItem>
-          <CollapsibleTrigger render={<SidebarMenuButton />}>
+          <CollapsibleTrigger render={<SidebarMenuButton className="pr-2!" />}>
             <HugeiconsIcon icon={icon} strokeWidth={2} />
             <span>{label}</span>
-            <span className="ml-auto text-xs text-sidebar-foreground/55 tabular-nums">
-              {resources.length}
-            </span>
             <HugeiconsIcon
               icon={ChevronRightIcon}
               strokeWidth={2}
-              className={`transition-transform ${open ? "rotate-90" : ""}`}
+              className={`ml-auto transition-transform ${open ? "rotate-90" : ""}`}
             />
           </CollapsibleTrigger>
+          {createKind && allResources && members && (
+            <SidebarMenuAction
+              showOnHover
+              className="right-8"
+              render={
+                <button
+                  type="button"
+                  aria-label={`New ${label}`}
+                  title={`New ${label}`}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    setCreateOpen(true)
+                  }}
+                />
+              }
+            >
+              <HugeiconsIcon icon={Add01Icon} strokeWidth={2} />
+            </SidebarMenuAction>
+          )}
           <CollapsibleContent>
             <ResourceSubmenu
               resources={resources}
@@ -173,6 +190,20 @@ function CollapsibleResourceGroup({
               activeResourceId={activeResourceId}
             />
           </CollapsibleContent>
+          {createKind && allResources && members && (
+            <ResourceFormSheet
+              workspaceId={workspaceId}
+              resources={allResources}
+              members={members}
+              defaultKind={createKind}
+              trigger={null}
+              open={createOpen}
+              onOpenChange={setCreateOpen}
+              onCreated={(resource) =>
+                navigate(`/workspace/${workspaceId}/resource/${resource.id}`)
+              }
+            />
+          )}
         </SidebarMenuItem>
       </SidebarMenu>
     </Collapsible>
@@ -183,28 +214,91 @@ export function WorkspaceSidebar({
   workspace,
   workspaces,
   resources,
+  members,
   activeResourceId,
   isLoading,
 }: {
   workspace: Workspace | null
   workspaces: Workspace[]
   resources: Resource[]
+  members: WorkspaceMember[]
   activeResourceId?: string
   isLoading: boolean
 }) {
   const navigate = useNavigate()
   const location = useLocation()
+  const zero = useZero()
   const { data: session } = authClient.useSession()
+  const [chats = []] = useQuery(
+    queries.humanChats.byWorkspace({
+      workspaceId: workspace?.id ?? "__none__",
+    }),
+    { enabled: Boolean(session && workspace?.id) }
+  )
+  const [openingUserId, setOpeningUserId] = useState<string | null>(null)
+  const [dmError, setDmError] = useState<string | null>(null)
   const recent = [...resources]
     .sort(
       (a, b) =>
         new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     )
     .slice(0, 5)
+  const otherMembers = members.filter(
+    (member) => member.userId !== session?.user.id
+  )
+  const canViewAudit = members.some(
+    (member) => member.userId === session?.user.id && member.role === "owner"
+  )
+  const dmByUserId = new Map<string, (typeof chats)[number]>()
+  for (const chat of chats) {
+    if (chat.type !== "dm") continue
+    const other = chat.participants.find(
+      (participant) => participant.userId !== session?.user.id
+    )
+    if (other) dmByUserId.set(other.userId, chat)
+  }
 
   async function signOut() {
     await authClient.signOut()
     navigate("/", { replace: true })
+  }
+
+  async function openDirectMessage(member: WorkspaceMember, now: number) {
+    if (!workspace || openingUserId) return
+    const existing = dmByUserId.get(member.userId)
+    if (existing) {
+      navigate(`/workspace/${workspace.id}/resource/${existing.id}`)
+      return
+    }
+
+    const id = crypto.randomUUID()
+    setOpeningUserId(member.userId)
+    setDmError(null)
+    try {
+      const result = zero.mutate(
+        mutators.humanChats.createDM({
+          id,
+          selfParticipantId: crypto.randomUUID(),
+          otherParticipantId: crypto.randomUUID(),
+          workspaceId: workspace.id,
+          otherUserId: member.userId,
+          now,
+        })
+      )
+      const serverResult = await result.server
+      if (serverResult.type === "error") {
+        throw new Error(serverResult.error.message)
+      }
+      navigate(`/workspace/${workspace.id}/resource/${id}`)
+    } catch (openError) {
+      setDmError(
+        openError instanceof Error
+          ? openError.message
+          : "Could not open direct message"
+      )
+    } finally {
+      setOpeningUserId(null)
+    }
   }
 
   return (
@@ -237,10 +331,10 @@ export function WorkspaceSidebar({
                     render={<Link to={`/workspace/${workspace.id}`} />}
                   >
                     <HugeiconsIcon
-                      icon={DashboardSquare01Icon}
+                      icon={WORKSPACE_NAV_CONFIG.overview.icon}
                       strokeWidth={2}
                     />
-                    <span>Overview</span>
+                    <span>{WORKSPACE_NAV_CONFIG.overview.label}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
@@ -250,10 +344,43 @@ export function WorkspaceSidebar({
                     }
                     render={<Link to={`/workspace/${workspace.id}/members`} />}
                   >
-                    <HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />
-                    <span>Members</span>
+                    <HugeiconsIcon
+                      icon={WORKSPACE_NAV_CONFIG.members.icon}
+                      strokeWidth={2}
+                    />
+                    <span>{WORKSPACE_NAV_CONFIG.members.label}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={
+                      location.pathname === `/workspace/${workspace.id}/teams`
+                    }
+                    render={<Link to={`/workspace/${workspace.id}/teams`} />}
+                  >
+                    <HugeiconsIcon
+                      icon={WORKSPACE_NAV_CONFIG.teams.icon}
+                      strokeWidth={2}
+                    />
+                    <span>{WORKSPACE_NAV_CONFIG.teams.label}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                {canViewAudit && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      isActive={
+                        location.pathname === `/workspace/${workspace.id}/audit`
+                      }
+                      render={<Link to={`/workspace/${workspace.id}/audit`} />}
+                    >
+                      <HugeiconsIcon
+                        icon={WORKSPACE_NAV_CONFIG.audit.icon}
+                        strokeWidth={2}
+                      />
+                      <span>{WORKSPACE_NAV_CONFIG.audit.label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
               </SidebarMenu>
               <CollapsibleResourceGroup
                 label="Recent"
@@ -265,8 +392,8 @@ export function WorkspaceSidebar({
             </CollapsibleSidebarGroup>
             <CollapsibleSidebarGroup label="Resources">
               <div className="space-y-0.5">
-                {(Object.keys(KIND_CONFIG) as ResourceKind[]).map((kind) => {
-                  const config = KIND_CONFIG[kind]
+                {(RESOURCE_KINDS as ResourceKind[]).map((kind) => {
+                  const config = RESOURCE_KIND_CONFIG[kind]
                   const items = resources
                     .filter((resource) => resource.kind === kind)
                     .sort((a, b) => a.name.localeCompare(b.name))
@@ -274,11 +401,14 @@ export function WorkspaceSidebar({
                   return (
                     <CollapsibleResourceGroup
                       key={`${kind}:${activeResourceId ?? "workspace"}`}
-                      label={config.label}
+                      label={config.plural}
                       icon={config.icon}
                       resources={items}
                       workspaceId={workspace.id}
                       activeResourceId={activeResourceId}
+                      createKind={kind}
+                      allResources={resources}
+                      members={members}
                       defaultOpen={items.some(
                         (item) => item.id === activeResourceId
                       )}
@@ -286,6 +416,57 @@ export function WorkspaceSidebar({
                   )
                 })}
               </div>
+            </CollapsibleSidebarGroup>
+            <CollapsibleSidebarGroup label="DMs">
+              {otherMembers.length === 0 ? (
+                <p className="px-2 py-1 text-xs text-sidebar-foreground/45">
+                  No other members yet
+                </p>
+              ) : (
+                <SidebarMenu>
+                  {otherMembers.map((member) => {
+                    const dm = dmByUserId.get(member.userId)
+                    return (
+                      <SidebarMenuItem key={member.id}>
+                        <SidebarMenuButton
+                          isActive={dm?.id === activeResourceId}
+                          disabled={openingUserId === member.userId}
+                          render={
+                            <button
+                              type="button"
+                              onClick={(event) =>
+                                void openDirectMessage(
+                                  member,
+                                  Math.round(
+                                    performance.timeOrigin + event.timeStamp
+                                  )
+                                )
+                              }
+                            />
+                          }
+                        >
+                          <Avatar className="size-4">
+                            {member.image && (
+                              <AvatarImage src={member.image} alt="" />
+                            )}
+                            <AvatarFallback className="text-[8px]">
+                              {(member.name || member.email)
+                                .charAt(0)
+                                .toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span>{member.name || member.email}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )
+                  })}
+                </SidebarMenu>
+              )}
+              {dmError && (
+                <p className="px-2 py-1 text-xs text-destructive" role="alert">
+                  {dmError}
+                </p>
+              )}
             </CollapsibleSidebarGroup>
           </>
         ) : null}
@@ -300,14 +481,9 @@ export function WorkspaceSidebar({
                   .toUpperCase()}
               </AvatarFallback>
             </Avatar>
-            <div className="min-w-0 flex-1 leading-tight">
-              <p className="truncate text-sm font-medium">
-                {session.user.name || "Signed in"}
-              </p>
-              <p className="truncate text-xs text-sidebar-foreground/55">
-                {session.user.email}
-              </p>
-            </div>
+            <p className="min-w-0 flex-1 truncate text-sm font-medium">
+              {session.user.name || "Signed in"}
+            </p>
             <Button
               variant="ghost"
               size="icon"

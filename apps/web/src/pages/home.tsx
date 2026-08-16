@@ -5,7 +5,9 @@ import { mutators } from "@workspace/zero/mutators"
 import { queries } from "@workspace/zero/queries"
 import { Button } from "@workspace/ui/components/button"
 
+import { AppLogo } from "@/components/app-logo"
 import { AppShell } from "@/components/app-shell"
+import { PageHeader } from "@/components/page-header"
 import { authClient } from "@/lib/auth-client"
 
 export function HomePage() {
@@ -77,12 +79,10 @@ export function HomePage() {
     return (
       <main className="grid min-h-svh place-items-center p-6">
         <section className="w-full max-w-sm space-y-5 rounded-xl border bg-card p-6 shadow-sm">
-          <div className="space-y-1">
-            <h1 className="text-xl font-semibold">Zany iHub</h1>
-            <p className="text-sm text-muted-foreground">
-              Sign in to open your workspaces.
-            </p>
-          </div>
+          <PageHeader
+            icon={<AppLogo className="size-5" />}
+            title="Zany iHub"
+          />
           <Button className="w-full" onClick={() => void signIn()}>
             Sign in with Google
           </Button>
@@ -99,7 +99,7 @@ export function HomePage() {
   return (
     <AppShell
       title="Workspaces"
-      subtitle={session.user.name || session.user.email}
+      icon={<AppLogo className="size-5" />}
     >
       <form
         className="flex flex-col gap-3 sm:flex-row"

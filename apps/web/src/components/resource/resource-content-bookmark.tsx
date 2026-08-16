@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link } from "react-router-dom"
 import {
-  Bookmark01Icon,
   ExternalLinkIcon,
   Link01Icon,
 } from "@hugeicons/core-free-icons"
@@ -9,15 +8,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { useQuery, useZero } from "@rocicorp/zero/react"
 import { mutators } from "@workspace/zero/mutators"
 import { queries } from "@workspace/zero/queries"
-import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card"
 import { Input } from "@workspace/ui/components/input"
 import {
   Select,
@@ -29,6 +20,8 @@ import {
 import { Skeleton } from "@workspace/ui/components/skeleton"
 
 import type { BookmarkContent, Resource } from "@/lib/api"
+import { RESOURCE_KIND_CONFIG } from "@/lib/resource-kind"
+import { ResourcePageHeader } from "./resource-page-header"
 
 export function ResourceContentBookmark({
   resource,
@@ -134,17 +127,7 @@ export function ResourceContentBookmark({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="mb-1 text-sm text-muted-foreground">Bookmark</p>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-            {resource.name}
-          </h1>
-        </div>
-        <Badge variant={content?.target ? "secondary" : "destructive"}>
-          {content?.target ? "Linked" : "Missing target"}
-        </Badge>
-      </div>
+      <ResourcePageHeader resource={resource} />
 
       {(error || queryError) && (
         <p className="text-sm text-destructive" role="alert">
@@ -152,17 +135,20 @@ export function ResourceContentBookmark({
         </p>
       )}
 
-      <Card>
-        <CardHeader>
-          <div className="mb-2 flex size-11 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-            <HugeiconsIcon icon={Bookmark01Icon} strokeWidth={1.8} />
+      <section className="space-y-4">
+        <div>
+          <div className="mb-3 flex size-11 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+            <HugeiconsIcon
+              icon={RESOURCE_KIND_CONFIG.bookmark.icon}
+              strokeWidth={1.8}
+            />
           </div>
-          <CardTitle>
+          <h2 className="font-heading text-base font-medium">
             {resourceTarget?.resource?.name ??
               urlTarget?.url ??
               "Target no longer exists"}
-          </CardTitle>
-          <CardDescription>
+          </h2>
+          <p className="text-sm text-muted-foreground">
             {resourceTarget
               ? resourceTarget.resource
                 ? `Workspace ${resourceTarget.resource.kind}`
@@ -170,9 +156,9 @@ export function ResourceContentBookmark({
               : urlTarget
                 ? "External website"
                 : "Choose a new target below."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+          </p>
+        </div>
+        <div>
           {resourceTarget?.resource && (
             <Button
               render={
@@ -199,17 +185,17 @@ export function ResourceContentBookmark({
               Open website
             </Button>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Edit target</CardTitle>
-          <CardDescription>
+      <section className="space-y-4">
+        <div>
+          <h2 className="font-heading text-base font-medium">Edit target</h2>
+          <p className="text-sm text-muted-foreground">
             Link this bookmark to a workspace resource or an HTTP(S) URL.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+          </p>
+        </div>
+        <div className="space-y-4">
           <Select
             value={targetType}
             onValueChange={(value) =>
@@ -262,8 +248,8 @@ export function ResourceContentBookmark({
           >
             {isSaving ? "Saving…" : "Save target"}
           </Button>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
     </div>
   )
 }

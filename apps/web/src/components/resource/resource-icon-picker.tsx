@@ -21,10 +21,12 @@ export function ResourceIconPicker({
   kind,
   value,
   onValueChange,
+  id,
 }: {
   kind: ResourceKind
   value: string
   onValueChange: (value: string) => void
+  id?: string
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -50,6 +52,7 @@ export function ResourceIconPicker({
       <PopoverTrigger
         render={
           <Button
+            id={id}
             type="button"
             variant="outline"
             className="h-10 w-full justify-start px-3 font-normal"
