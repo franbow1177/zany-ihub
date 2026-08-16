@@ -8,6 +8,7 @@ export const RESOURCE_KINDS = [
   "bookmark",
   "agent",
   "ai-chat",
+  "chat",
 ] as const
 export type ResourceKind = (typeof RESOURCE_KINDS)[number]
 

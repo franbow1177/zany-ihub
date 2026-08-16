@@ -9,6 +9,7 @@ import { ResourceContentFile } from "./resource-content-file"
 import { ResourceContentFolder } from "./resource-content-folder"
 import { ResourceContentProject } from "./resource-content-project"
 import { ResourceContentTable } from "./resource-content-table"
+import { ResourceContentChat } from "./resource-content-chat"
 
 const ResourceContentWhiteboard = lazy(() =>
   import("./resource-content-whiteboard").then((module) => ({
@@ -33,7 +34,8 @@ export function ResourceContent({
         <ResourceContentFolder
           key={resource.id}
           resource={resource}
-          children={resources.filter((item) => item.parentId === resource.id)}
+          resources={resources}
+          members={members}
           workspaceId={workspaceId}
         />
       )
@@ -82,5 +84,7 @@ export function ResourceContent({
       return <ResourceContentAgent key={resource.id} resource={resource} />
     case "ai-chat":
       return <ResourceContentAiChat key={resource.id} resource={resource} />
+    case "chat":
+      return <ResourceContentChat key={resource.id} resource={resource} />
   }
 }

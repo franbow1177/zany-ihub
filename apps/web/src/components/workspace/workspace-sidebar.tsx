@@ -4,6 +4,7 @@ import {
   AiChat02Icon,
   AiUserIcon,
   Bookmark01Icon,
+  BubbleChatIcon,
   ChevronRightIcon,
   Clock01Icon,
   File01Icon,
@@ -60,6 +61,7 @@ const KIND_CONFIG: Record<
   bookmark: { label: "Bookmarks", icon: Bookmark01Icon },
   agent: { label: "Agents", icon: AiUserIcon },
   "ai-chat": { label: "AI chats", icon: AiChat02Icon },
+  chat: { label: "Channels", icon: BubbleChatIcon },
 }
 
 function ResourceSubmenu({

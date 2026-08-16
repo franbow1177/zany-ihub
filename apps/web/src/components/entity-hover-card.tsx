@@ -24,7 +24,7 @@ function initials(label: string) {
     .join("")
 }
 
-function updatedLabel(value?: string) {
+function updatedLabel(value?: number) {
   if (!value) return null
 
   const date = new Date(value)

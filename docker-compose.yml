@@ -3,6 +3,7 @@ name: zany-ihub
 services:
   postgres:
     image: postgres:16-alpine
+    command: postgres -c wal_level=logical
     ports:
       # Host 5433 — OrbStack often already has another Postgres on 5432
       - "5433:5432"
@@ -84,9 +85,52 @@ services:
         condition: service_completed_successfully
     working_dir: /app/services/api
     command: ["bun", "run", "--watch", "src/index.ts"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
     volumes:
       - ./services/api/src:/app/services/api/src
       - ./packages/db/src:/app/packages/db/src
+      - ./packages/zero/src:/app/packages/zero/src
+
+  zero-cache:
+    image: rocicorp/zero:1.9.0
+    ports:
+      - "4848:4848"
+    stop_grace_period: 10m
+    environment:
+      ZERO_UPSTREAM_DB: postgres://postgres:postgres@postgres:5432/zany_ihub
+      ZERO_CVR_DB: postgres://postgres:postgres@postgres:5432/zany_ihub
+      ZERO_CHANGE_DB: postgres://postgres:postgres@postgres:5432/zany_ihub
+      ZERO_REPLICA_FILE: /data/replica.db
+      ZERO_ADMIN_PASSWORD: ${ZERO_ADMIN_PASSWORD:-local-zero-admin}
+      ZERO_QUERY_URL: http://api:3000/api/zero/query
+      ZERO_MUTATE_URL: http://api:3000/api/zero/mutate
+      ZERO_QUERY_FORWARD_COOKIES: "true"
+      ZERO_MUTATE_FORWARD_COOKIES: "true"
+      ZERO_ENABLE_CRUD_MUTATIONS: "false"
+    volumes:
+      - zero_cache_data:/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4848/keepalive"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
 
   web:
     build: .
@@ -96,8 +140,12 @@ services:
       - .env
     environment:
       VITE_API_URL: http://localhost:3000
+      VITE_ZERO_CACHE_URL: http://localhost:4848
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+      zero-cache:
+        condition: service_healthy
     working_dir: /app/apps/web
     command:
       [
@@ -112,7 +160,9 @@ services:
     volumes:
       - ./apps/web/src:/app/apps/web/src
       - ./packages/ui/src:/app/packages/ui/src
+      - ./packages/zero/src:/app/packages/zero/src
 
 volumes:
   postgres_data:
   minio_data:
+  zero_cache_data:

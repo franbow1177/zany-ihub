@@ -1,3 +1,4 @@
+import { relations } from "drizzle-orm"
 import { pgTable, text, timestamp } from "drizzle-orm/pg-core"
 import { resource } from "./resource"
 
@@ -15,3 +16,10 @@ export const resourceAgent = pgTable("resource_agent", {
     .$onUpdate(() => new Date())
     .notNull(),
 })
+
+export const resourceAgentRelations = relations(resourceAgent, ({ one }) => ({
+  resource: one(resource, {
+    fields: [resourceAgent.id],
+    references: [resource.id],
+  }),
+}))

@@ -1,91 +1,79 @@
-import { useCallback, useEffect, useState } from "react"
+import { useMemo } from "react"
+import { useQuery } from "@rocicorp/zero/react"
+import { queries } from "@workspace/zero/queries"
 
-import {
-  apiFetch,
-  type Resource,
-  type Workspace,
-  type WorkspaceMember,
+import type {
+  Resource,
+  Workspace,
+  WorkspaceMember,
 } from "@/lib/api"
-
-type WorkspaceShellState = {
-  workspace: Workspace | null
-  workspaces: Workspace[]
-  resources: Resource[]
-  members: WorkspaceMember[]
-  isLoading: boolean
-  error: string | null
-}
-
-type WorkspaceShellData = WorkspaceShellState & { reload: () => void }
-
-const initialState: WorkspaceShellState = {
-  workspace: null,
-  workspaces: [],
-  resources: [],
-  members: [],
-  isLoading: true,
-  error: null,
-}
 
 export function useWorkspaceShellData(
   workspaceId: string,
   enabled = true
-): WorkspaceShellData {
-  const [state, setState] = useState<WorkspaceShellState>(initialState)
-  const [revision, setRevision] = useState(0)
-  const reload = useCallback(() => setRevision((current) => current + 1), [])
+) {
+  const shouldLoad = enabled && Boolean(workspaceId)
+  const [workspace, workspaceState] = useQuery(
+    queries.workspaces.byID({ id: workspaceId }),
+    { enabled: shouldLoad }
+  )
+  const [workspaces = [], workspacesState] = useQuery(
+    queries.workspaces.mine(),
+    { enabled }
+  )
+  const [resources = [], resourcesState] = useQuery(
+    queries.resources.byWorkspace({ workspaceId }),
+    { enabled: shouldLoad }
+  )
+  const [memberRows = [], membersState] = useQuery(
+    queries.members.byWorkspace({ workspaceId }),
+    { enabled: shouldLoad }
+  )
 
-  useEffect(() => {
-    if (!enabled || !workspaceId) {
-      setState((current) => ({ ...current, isLoading: false }))
-      return
+  const members = useMemo<WorkspaceMember[]>(
+    () =>
+      memberRows.flatMap((member) =>
+        member.user
+          ? [
+              {
+                id: member.id,
+                workspaceId: member.workspaceId,
+                userId: member.userId,
+                role: member.role,
+                createdAt: member.createdAt ?? 0,
+                name: member.user.name,
+                email: member.user.email,
+                image: member.user.image ?? null,
+              },
+            ]
+          : []
+      ),
+    [memberRows]
+  )
+
+  const states = [
+    workspaceState,
+    workspacesState,
+    resourcesState,
+    membersState,
+  ]
+  const errorState = states.find((state) => state.type === "error")
+  function reload() {
+    for (const state of states) {
+      if (state.type === "error") state.retry()
     }
+  }
 
-    const controller = new AbortController()
-    setState((current) => ({ ...current, isLoading: true, error: null }))
-
-    async function load() {
-      try {
-        const [workspace, workspaces, resources, members] = await Promise.all([
-          apiFetch<Workspace>(`/workspaces/${workspaceId}`, {
-            signal: controller.signal,
-          }),
-          apiFetch<Workspace[]>("/workspaces", {
-            signal: controller.signal,
-          }),
-          apiFetch<Resource[]>(
-            `/workspaces/${workspaceId}/resources?scope=all`,
-            { signal: controller.signal }
-          ),
-          apiFetch<WorkspaceMember[]>(`/workspaces/${workspaceId}/members`, {
-            signal: controller.signal,
-          }),
-        ])
-
-        setState({
-          workspace,
-          workspaces,
-          resources,
-          members,
-          isLoading: false,
-          error: null,
-        })
-      } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") return
-        setState((current) => ({
-          ...current,
-          isLoading: false,
-          error:
-            error instanceof Error
-              ? error.message
-              : "Could not load workspace navigation",
-        }))
-      }
-    }
-
-    void load()
-    return () => controller.abort()
-  }, [enabled, revision, workspaceId])
-
-  return { ...state, reload }
+  return {
+    workspace: (workspace ?? null) as Workspace | null,
+    workspaces: workspaces as Workspace[],
+    resources: resources as Resource[],
+    members,
+    isLoading: shouldLoad && states.some((state) => state.type === "unknown"),
+    error:
+      errorState?.type === "error"
+        ? errorState.error.message
+        : null,
+    reload,
+  }
 }

@@ -4,6 +4,7 @@ import {
   AiChat02Icon,
   AiUserIcon,
   Bookmark01Icon,
+  BubbleChatIcon,
   CubeIcon,
   Delete02Icon,
   Edit02Icon,
@@ -21,6 +22,9 @@ import {
 } from "@hugeicons/core-free-icons"
 import type { IconSvgElement } from "@hugeicons/react"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { useQuery, useZero } from "@rocicorp/zero/react"
+import { mutators } from "@workspace/zero/mutators"
+import { queries } from "@workspace/zero/queries"
 import {
   Alert,
   AlertDescription,
@@ -39,6 +43,7 @@ import {
   AlertDialogTrigger,
 } from "@workspace/ui/components/alert-dialog"
 import { Button } from "@workspace/ui/components/button"
+import { Checkbox } from "@workspace/ui/components/checkbox"
 import {
   Field,
   FieldDescription,
@@ -72,7 +77,9 @@ import {
   type Resource,
   type ResourceFileMeta,
   type ResourceKind,
+  type WorkspaceMember,
 } from "@/lib/api"
+import { authClient } from "@/lib/auth-client"
 import { ResourceIconPicker } from "./resource-icon-picker"
 
 const ROOT_LOCATION = "__workspace_root__"
@@ -138,6 +145,12 @@ const KIND_CONFIG: Record<
     icon: AiChat02Icon,
     description: "A persistent conversation with a model or agent.",
   },
+  chat: {
+    label: "Channel",
+    plural: "Channels",
+    icon: BubbleChatIcon,
+    description: "A real-time conversation for workspace members.",
+  },
 }
 
 const KINDS = Object.keys(KIND_CONFIG) as ResourceKind[]
@@ -175,6 +188,10 @@ function KindSpecificFields({
   onBookmarkTargetTypeChange,
   onBookmarkResourceIdChange,
   onBookmarkUrlChange,
+  members,
+  currentUserId,
+  selectedChatMemberIds,
+  onChatMemberToggle,
 }: {
   kind: ResourceKind
   resource?: Resource
@@ -187,6 +204,10 @@ function KindSpecificFields({
   onBookmarkTargetTypeChange: (value: "resource" | "url") => void
   onBookmarkResourceIdChange: (value: string) => void
   onBookmarkUrlChange: (value: string) => void
+  members: WorkspaceMember[]
+  currentUserId?: string
+  selectedChatMemberIds: string[]
+  onChatMemberToggle: (userId: string, selected: boolean) => void
 }) {
   const config = KIND_CONFIG[kind]
 
@@ -297,6 +318,62 @@ function KindSpecificFields({
     )
   }
 
+  if (kind === "chat") {
+    const requiredUserIds = new Set(
+      [resource?.createdBy, currentUserId].filter(
+        (userId): userId is string => Boolean(userId)
+      )
+    )
+
+    return (
+      <FieldGroup className="gap-0">
+        <Field className={PROPERTY_ROW}>
+          <FieldLabel className={PROPERTY_LABEL}>
+            <HugeiconsIcon icon={BubbleChatIcon} strokeWidth={2} />
+            Members <span className="text-destructive">*</span>
+          </FieldLabel>
+          <div className={`${PROPERTY_CONTROL} space-y-3`}>
+            <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border p-2">
+              {[...members]
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((member) => {
+                  const checked = selectedChatMemberIds.includes(member.userId)
+                  const required = requiredUserIds.has(member.userId)
+                  return (
+                    <label
+                      key={member.userId}
+                      className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-muted/60"
+                    >
+                      <Checkbox
+                        checked={checked}
+                        disabled={required}
+                        onCheckedChange={(nextChecked) =>
+                          onChatMemberToggle(member.userId, nextChecked)
+                        }
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">
+                          {member.name}
+                          {required ? " (required)" : ""}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {member.email}
+                        </span>
+                      </span>
+                    </label>
+                  )
+                })}
+            </div>
+            <FieldDescription>
+              The creator is included automatically. Select at least one other
+              workspace member; only channel members can see or open it.
+            </FieldDescription>
+          </div>
+        </Field>
+      </FieldGroup>
+    )
+  }
+
   const contentMessage = {
     folder:
       "Folders use the shared resource fields only. Child resources are managed from the folder view.",
@@ -308,6 +385,7 @@ function KindSpecificFields({
     bookmark: "The bookmark target is managed from the bookmark view.",
     agent: "Model, persona, and instructions are managed from the agent view.",
     "ai-chat": "Model or agent selection is managed from the chat composer.",
+    chat: "Messages are synchronized live for workspace members.",
     file: "File uploads are managed above.",
   }[kind]
 
@@ -325,6 +403,7 @@ function KindSpecificFields({
 export function ResourceFormSheet({
   workspaceId,
   resources,
+  members,
   resource,
   defaultParentId = null,
   trigger,
@@ -336,6 +415,7 @@ export function ResourceFormSheet({
 }: {
   workspaceId: string
   resources: Resource[]
+  members: WorkspaceMember[]
   resource?: Resource
   defaultParentId?: string | null
   trigger?: ReactElement | null
@@ -345,7 +425,13 @@ export function ResourceFormSheet({
   onUpdated?: (resource: Resource) => void
   onDeleted?: (resource: Resource) => void
 }) {
+  const zero = useZero()
+  const { data: session } = authClient.useSession()
   const isEditing = Boolean(resource)
+  const [channel] = useQuery(
+    queries.humanChats.byID({ id: resource?.id ?? "__new_channel__" }),
+    { enabled: resource?.kind === "chat" }
+  )
   const [internalOpen, setInternalOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [name, setName] = useState(resource?.name ?? "Untitled")
@@ -361,6 +447,9 @@ export function ResourceFormSheet({
   >("url")
   const [bookmarkResourceId, setBookmarkResourceId] = useState("")
   const [bookmarkUrl, setBookmarkUrl] = useState("")
+  const [channelMemberSelection, setChannelMemberSelection] = useState<
+    string[] | null
+  >(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -375,6 +464,13 @@ export function ResourceFormSheet({
       (item) => item.kind === "folder" && !unavailableFolderIds.has(item.id)
     )
     .sort((a, b) => a.name.localeCompare(b.name))
+  const selectedChatMemberIds =
+    channelMemberSelection ??
+    (resource?.kind === "chat" && channel?.type === "channel"
+      ? channel.participants.map((participant) => participant.userId)
+      : session?.user.id
+        ? [session.user.id]
+        : [])
 
   function resetForm() {
     setName(resource?.name ?? "Untitled")
@@ -386,6 +482,7 @@ export function ResourceFormSheet({
     setBookmarkTargetType("url")
     setBookmarkResourceId("")
     setBookmarkUrl("")
+    setChannelMemberSelection(null)
     setError(null)
   }
 
@@ -421,49 +518,107 @@ export function ResourceFormSheet({
       setError("Bookmark target is required")
       return
     }
+    if (kind === "chat" && selectedChatMemberIds.length < 2) {
+      setError("Select at least one channel member")
+      return
+    }
 
     setError(null)
     setIsSaving(true)
     try {
       let saved: Resource
       if (resource) {
-        saved = await apiFetch<Resource>(`/resources/${resource.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({
+        const now = Date.now()
+        if (resource.kind === "chat") {
+          const participantResult = zero.mutate(
+            mutators.humanChats.updateChannelParticipants({
+              id: resource.id,
+              participants: selectedChatMemberIds.map((userId) => ({
+                id:
+                  channel?.participants.find(
+                    (participant) => participant.userId === userId
+                  )?.id ?? crypto.randomUUID(),
+                userId,
+              })),
+              now,
+            })
+          )
+          const participantServerResult = await participantResult.server
+          if (participantServerResult.type === "error") {
+            throw new Error(participantServerResult.error.message)
+          }
+        }
+        const result = zero.mutate(
+          mutators.resources.update({
+            id: resource.id,
             name: trimmedName,
             parentId,
             description: description.trim() || null,
             icon: icon.trim() || null,
-          }),
-        })
-        if (resource.kind === "file") {
-          saved = { ...saved, file: resource.file }
+            now,
+          })
+        )
+        const serverResult = await result.server
+        if (serverResult.type === "error") {
+          throw new Error(serverResult.error.message)
+        }
+        saved = {
+          ...resource,
+          name: trimmedName,
+          parentId,
+          description: description.trim() || null,
+          icon: icon.trim() || null,
+          updatedAt: now,
         }
       } else {
-        saved = await apiFetch<Resource>(
-          `/workspaces/${workspaceId}/resources`,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              name: trimmedName,
-              kind,
-              description: description.trim() || null,
-              icon: icon.trim() || null,
-              ...(parentId ? { parentId } : {}),
-              ...(kind === "bookmark"
-                ? {
-                    bookmark:
-                      bookmarkTargetType === "resource"
-                        ? {
-                            type: "resource",
-                            resourceId: bookmarkResourceId,
-                          }
-                        : { type: "url", url: bookmarkUrl.trim() },
-                  }
-                : {}),
-            }),
-          }
+        const id = crypto.randomUUID()
+        const now = Date.now()
+        const bookmark =
+          kind === "bookmark"
+            ? bookmarkTargetType === "resource"
+              ? ({
+                  type: "resource" as const,
+                  resourceId: bookmarkResourceId,
+                } as const)
+              : ({ type: "url" as const, url: bookmarkUrl.trim() } as const)
+            : null
+        const result = zero.mutate(
+          mutators.resources.create({
+            id,
+            workspaceId,
+            parentId,
+            kind,
+            name: trimmedName,
+            description: description.trim() || null,
+            icon: icon.trim() || null,
+            bookmark,
+            channelParticipants:
+              kind === "chat"
+                ? selectedChatMemberIds.map((userId) => ({
+                    id: crypto.randomUUID(),
+                    userId,
+                  }))
+                : null,
+            now,
+          })
         )
+        const serverResult = await result.server
+        if (serverResult.type === "error") {
+          throw new Error(serverResult.error.message)
+        }
+        saved = {
+          id,
+          workspaceId,
+          parentId,
+          kind,
+          name: trimmedName,
+          description: description.trim() || null,
+          icon: icon.trim() || null,
+          createdBy: "",
+          createdAt: now,
+          updatedAt: now,
+          ...(kind === "file" ? { file: null } : {}),
+        }
       }
 
       if (kind === "file" && file) {
@@ -527,7 +682,10 @@ export function ResourceFormSheet({
       onOpenChange={handleOpenChange}
     >
       {trigger !== null && <SheetTrigger render={trigger ?? defaultTrigger} />}
-      <SheetContent side="right" className="gap-0 sm:max-w-3xl">
+      <SheetContent
+        side="right"
+        className="gap-0 data-[side=right]:sm:max-w-3xl [&_svg]:size-4"
+      >
         <form className="flex min-h-0 flex-1 flex-col" onSubmit={save}>
           <SheetHeader className="border-b px-5 py-5 pr-14">
             <SheetTitle className="text-xl">
@@ -699,6 +857,18 @@ export function ResourceFormSheet({
                 onBookmarkTargetTypeChange={setBookmarkTargetType}
                 onBookmarkResourceIdChange={setBookmarkResourceId}
                 onBookmarkUrlChange={setBookmarkUrl}
+                members={members}
+                currentUserId={session?.user.id}
+                selectedChatMemberIds={selectedChatMemberIds}
+                onChatMemberToggle={(userId, selected) =>
+                  setChannelMemberSelection(
+                    selected
+                      ? selectedChatMemberIds.includes(userId)
+                        ? selectedChatMemberIds
+                        : [...selectedChatMemberIds, userId]
+                      : selectedChatMemberIds.filter((id) => id !== userId)
+                  )
+                }
               />
             </FieldSet>
 

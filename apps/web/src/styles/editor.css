@@ -1,35 +1,86 @@
 .tiptap {
+  width: 100%;
+  max-width: 52rem;
+  margin-inline: auto;
   color: var(--foreground);
+  font-size: 1rem;
+  line-height: 1.75;
   outline: none;
+  text-rendering: optimizeLegibility;
+}
+
+.tiptap > * {
+  border-radius: 0.35rem;
+  margin-inline: -0.35rem;
+  padding-inline: 0.35rem;
+  transition: background-color 120ms ease;
+}
+
+.tiptap > *:hover {
+  background: color-mix(in oklch, var(--muted) 45%, transparent);
+}
+
+.resource-doc-drag-handle {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.resource-doc-drag-handle:hover,
+.resource-doc-drag-handle[data-dragging="true"] {
+  opacity: 1;
+}
+
+.resource-doc-drag-handle:not([style*="visibility: hidden"]) {
+  opacity: 1;
+}
+
+.tiptap .resource-doc-slash-command {
+  border-radius: 0.2rem;
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
 }
 
 .tiptap > * + * {
-  margin-top: 0.8em;
+  margin-top: 1.5rem;
 }
 
 .tiptap h1,
 .tiptap h2,
 .tiptap h3 {
-  font-weight: 650;
-  letter-spacing: -0.025em;
-  line-height: 1.2;
+  scroll-margin-top: 5rem;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  text-wrap: balance;
 }
 
 .tiptap h1 {
-  font-size: 1.875rem;
+  margin-top: 3rem;
+  font-size: 2.25rem;
+  font-weight: 800;
 }
 
 .tiptap h2 {
-  font-size: 1.5rem;
+  margin-top: 2.5rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+  font-size: 1.875rem;
+  font-weight: 650;
 }
 
 .tiptap h3 {
-  font-size: 1.25rem;
+  margin-top: 2rem;
+  font-size: 1.5rem;
+  font-weight: 650;
+}
+
+.tiptap h1:first-child,
+.tiptap h2:first-child,
+.tiptap h3:first-child {
+  margin-top: 0;
 }
 
 .tiptap ul,
 .tiptap ol {
-  padding-left: 1.5rem;
+  padding-left: 1.75rem;
 }
 
 .tiptap ul {
@@ -40,32 +91,82 @@
   list-style: decimal;
 }
 
+.tiptap li + li {
+  margin-top: 0.5rem;
+}
+
+.tiptap li > ul,
+.tiptap li > ol {
+  margin-top: 0.5rem;
+}
+
 .tiptap blockquote {
-  border-left: 3px solid var(--border);
+  border-left: 2px solid var(--border);
   color: var(--muted-foreground);
-  padding-left: 1rem;
+  padding-left: 1.5rem;
+  font-style: italic;
+}
+
+.tiptap hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin-block: 2rem;
+}
+
+.tiptap a {
+  color: var(--foreground);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: color-mix(
+    in oklch,
+    var(--foreground) 45%,
+    transparent
+  );
+  text-underline-offset: 0.25rem;
+}
+
+.tiptap a:hover {
+  text-decoration-color: currentColor;
+}
+
+.tiptap strong {
+  font-weight: 650;
 }
 
 .tiptap code {
-  border-radius: 0.3rem;
+  border-radius: 0.25rem;
   background: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.875em;
-  padding: 0.15rem 0.3rem;
+  font-weight: 600;
+  padding: 0.2rem 0.3rem;
 }
 
 .tiptap pre {
   overflow-x: auto;
   border-radius: var(--radius-lg);
-  background: var(--foreground);
-  color: var(--background);
+  border: 1px solid var(--border);
+  background: color-mix(in oklch, var(--muted) 75%, var(--background));
+  color: var(--foreground);
+  line-height: 1.6;
+  margin-inline: 0;
   padding: 1rem;
+}
+
+.tiptap pre:hover {
+  background: color-mix(in oklch, var(--muted) 75%, var(--background));
 }
 
 .tiptap pre code {
   background: transparent;
   color: inherit;
+  font-size: 0.875rem;
+  font-weight: 400;
   padding: 0;
+}
+
+.tiptap ::selection {
+  background: color-mix(in oklch, var(--primary) 28%, transparent);
 }
 
 .tiptap p.is-editor-empty:first-child::before {

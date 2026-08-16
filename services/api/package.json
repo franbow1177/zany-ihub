@@ -10,10 +10,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@rocicorp/zero": "1.9.0",
     "@aws-sdk/client-s3": "^3.1111.0",
     "@elysiajs/cors": "^1.4.2",
     "@openrouter/ai-sdk-provider": "3.0.0",
     "@workspace/db": "workspace:*",
+    "@workspace/zero": "workspace:*",
     "ai": "^7.0.66",
     "better-auth": "^1.6.29",
     "drizzle-orm": "^0.45.2",

@@ -120,6 +120,11 @@ const chatTarget = t.Union([
 ])
 
 export const aiResourceRoutes = new Elysia({ name: "ai-resource-routes" })
+  .get("/ai/models", async ({ request, set }) => {
+    const sessionUser = await getSessionUser(request)
+    if (!sessionUser) return failure(set, 401, "Unauthorized")
+    return listAiModels()
+  })
   .get("/resources/:id/agent", async ({ params, request, set }) => {
     const access = await authorizeResource(request, params.id)
     if (access.failure) {

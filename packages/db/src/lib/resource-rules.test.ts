@@ -13,6 +13,7 @@ describe("resource rules", () => {
       "bookmark",
       "agent",
       "ai-chat",
+      "chat",
     ])
   })
 

@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
+import { useQuery, useZero } from "@rocicorp/zero/react"
+import { mutators } from "@workspace/zero/mutators"
+import { queries } from "@workspace/zero/queries"
 import { Button } from "@workspace/ui/components/button"
 
 import { AppShell } from "@/components/app-shell"
-import { apiFetch, type Workspace } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
 
 export function HomePage() {
@@ -13,37 +15,14 @@ export function HomePage() {
     isPending,
     error: sessionError,
   } = authClient.useSession()
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const zero = useZero()
+  const [workspaces = [], workspaceState] = useQuery(
+    queries.workspaces.mine(),
+    { enabled: Boolean(session) }
+  )
   const [name, setName] = useState("")
-  const [isLoading, setIsLoading] = useState(true)
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!session) return
-
-    const controller = new AbortController()
-
-    async function load() {
-      try {
-        const data = await apiFetch<Workspace[]>("/workspaces", {
-          signal: controller.signal,
-        })
-        setWorkspaces(data)
-        setError(null)
-      } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") return
-        setError(
-          err instanceof Error ? err.message : "Could not load workspaces"
-        )
-      } finally {
-        if (!controller.signal.aborted) setIsLoading(false)
-      }
-    }
-
-    void load()
-    return () => controller.abort()
-  }, [session])
 
   async function signIn() {
     setError(null)
@@ -62,12 +41,21 @@ export function HomePage() {
     setError(null)
     setIsCreating(true)
     try {
-      const workspace = await apiFetch<Workspace>("/workspaces", {
-        method: "POST",
-        body: JSON.stringify({ name: workspaceName }),
-      })
+      const id = crypto.randomUUID()
+      const result = zero.mutate(
+        mutators.workspaces.create({
+          id,
+          membershipId: crypto.randomUUID(),
+          name: workspaceName,
+          now: Date.now(),
+        })
+      )
+      const serverResult = await result.server
+      if (serverResult.type === "error") {
+        throw new Error(serverResult.error.message)
+      }
       setName("")
-      navigate(`/workspace/${workspace.id}`)
+      navigate(`/workspace/${id}`)
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Could not create workspace"
@@ -133,14 +121,17 @@ export function HomePage() {
         </Button>
       </form>
 
-      {error && (
+      {(error || workspaceState.type === "error") && (
         <p className="text-sm text-destructive" role="alert">
-          {error}
+          {error ||
+            (workspaceState.type === "error"
+              ? workspaceState.error.message
+              : null)}
         </p>
       )}
 
       <section aria-label="Workspace list">
-        {isLoading ? (
+        {workspaceState.type === "unknown" ? (
           <p className="text-sm text-muted-foreground">Loading workspaces…</p>
         ) : workspaces.length === 0 ? (
           <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">

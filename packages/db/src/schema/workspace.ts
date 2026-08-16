@@ -6,6 +6,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core"
+import { relations } from "drizzle-orm"
 import { user } from "./auth"
 
 export const workspaceRoleEnum = pgEnum("workspace_role", ["owner", "member"])
@@ -74,4 +75,22 @@ export const workspaceInvitation = pgTable(
     ),
     index("workspace_invitation_workspace_idx").on(table.workspaceId),
   ]
+)
+
+export const workspaceRelations = relations(workspace, ({ many }) => ({
+  members: many(workspaceMember),
+}))
+
+export const workspaceMemberRelations = relations(
+  workspaceMember,
+  ({ one }) => ({
+    workspace: one(workspace, {
+      fields: [workspaceMember.workspaceId],
+      references: [workspace.id],
+    }),
+    user: one(user, {
+      fields: [workspaceMember.userId],
+      references: [user.id],
+    }),
+  })
 )

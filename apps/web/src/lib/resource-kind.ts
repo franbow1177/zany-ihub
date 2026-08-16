@@ -2,6 +2,7 @@ import {
   AiChat02Icon,
   AiUserIcon,
   Bookmark01Icon,
+  BubbleChatIcon,
   File01Icon,
   Folder01Icon,
   Note01Icon,
@@ -26,4 +27,5 @@ export const RESOURCE_KIND_CONFIG: Record<
   bookmark: { label: "Bookmark", icon: Bookmark01Icon },
   agent: { label: "Agent", icon: AiUserIcon },
   "ai-chat": { label: "AI chat", icon: AiChat02Icon },
+  chat: { label: "Channel", icon: BubbleChatIcon },
 }

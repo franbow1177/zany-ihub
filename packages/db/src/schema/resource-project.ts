@@ -6,6 +6,7 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core"
+import { relations } from "drizzle-orm"
 import { user } from "./auth"
 import { resource } from "./resource"
 
@@ -56,3 +57,25 @@ export const projectTask = pgTable(
   },
   (table) => [index("project_task_project_idx").on(table.projectId)]
 )
+
+export const resourceProjectRelations = relations(
+  resourceProject,
+  ({ one, many }) => ({
+    resource: one(resource, {
+      fields: [resourceProject.id],
+      references: [resource.id],
+    }),
+    tasks: many(projectTask),
+  })
+)
+
+export const projectTaskRelations = relations(projectTask, ({ one }) => ({
+  project: one(resourceProject, {
+    fields: [projectTask.projectId],
+    references: [resourceProject.id],
+  }),
+  creator: one(user, {
+    fields: [projectTask.createdBy],
+    references: [user.id],
+  }),
+}))

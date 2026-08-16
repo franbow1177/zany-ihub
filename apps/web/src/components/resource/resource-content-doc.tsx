@@ -1,17 +1,13 @@
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import {
-  CodeIcon,
-  Heading02Icon,
-  LeftToRightBlockQuoteIcon,
-  LeftToRightListBulletIcon,
-  LeftToRightListNumberIcon,
-  Redo02Icon,
+  Add01Icon,
+  DragDropVerticalIcon,
   TextBoldIcon,
   TextItalicIcon,
   TextStrikethroughIcon,
-  Undo02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import DragHandle from "@tiptap/extension-drag-handle-react"
 import { Placeholder } from "@tiptap/extensions"
 import Mention from "@tiptap/extension-mention"
 import {
@@ -21,11 +17,11 @@ import {
   useEditor,
   useEditorState,
 } from "@tiptap/react"
+import { BubbleMenu } from "@tiptap/react/menus"
 import StarterKit from "@tiptap/starter-kit"
 import { exitSuggestion } from "@tiptap/suggestion"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
-import { Card, CardContent } from "@workspace/ui/components/card"
 
 import type { Resource, WorkspaceMember } from "@/lib/api"
 import {
@@ -38,6 +34,19 @@ import {
   type ResourceDocMentionListProps,
 } from "./resource-doc-mention-list"
 import { ResourceDocMention } from "./resource-doc-mention"
+import { ResourceDocSlashCommand } from "./resource-doc-slash-command"
+
+const dragHandlePosition = {
+  placement: "left-start" as const,
+  strategy: "absolute" as const,
+}
+
+const bubbleMenuPosition = {
+  placement: "top" as const,
+  offset: 8,
+  flip: true,
+  shift: true,
+}
 
 function storageKey(resourceId: string) {
   return `zany-ihub:document:${resourceId}`
@@ -60,13 +69,18 @@ export function ResourceContentDoc({
     () => buildWorkspaceMentionItems(resources, members),
     [resources, members]
   )
+  const [hoveredBlock, setHoveredBlock] = useState<{
+    pos: number
+    nodeSize: number
+  } | null>(null)
 
   const editor = useEditor(
     {
       extensions: [
         StarterKit,
+        ResourceDocSlashCommand,
         Placeholder.configure({
-          placeholder: "Start writing…",
+          placeholder: "Write something, or press '/' for commands…",
         }),
         Mention.extend({
           addNodeView() {
@@ -122,7 +136,8 @@ export function ResourceContentDoc({
       content: loadDocument(resource.id),
       editorProps: {
         attributes: {
-          class: "tiptap min-h-[32rem] px-5 py-6 sm:px-8 sm:py-8",
+          class:
+            "tiptap min-h-[32rem] py-6 pr-5 pl-14 sm:py-8 sm:pr-8 sm:pl-16",
         },
       },
       onUpdate: ({ editor: currentEditor }) => {
@@ -141,156 +156,126 @@ export function ResourceContentDoc({
       bold: currentEditor.isActive("bold"),
       italic: currentEditor.isActive("italic"),
       strike: currentEditor.isActive("strike"),
-      heading: currentEditor.isActive("heading", { level: 2 }),
-      bulletList: currentEditor.isActive("bulletList"),
-      orderedList: currentEditor.isActive("orderedList"),
-      blockquote: currentEditor.isActive("blockquote"),
-      codeBlock: currentEditor.isActive("codeBlock"),
-      canUndo: currentEditor.can().chain().focus().undo().run(),
-      canRedo: currentEditor.can().chain().focus().redo().run(),
     }),
   })
+
+  function addBlockAfterHoveredBlock() {
+    if (!editor || !hoveredBlock) return
+
+    const insertPos = hoveredBlock.pos + hoveredBlock.nodeSize
+
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(insertPos, {
+        type: "paragraph",
+        content: [{ type: "text", text: "/" }],
+      })
+      .setTextSelection(insertPos + 2)
+      .run()
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="mb-1 text-sm text-muted-foreground">Document</p>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
             {resource.name}
           </h1>
         </div>
         <Badge variant="outline">Saved locally</Badge>
       </div>
 
-      <Card className="gap-0 overflow-hidden py-0">
-        <div
-          className="flex flex-wrap items-center gap-1 border-b bg-muted/30 p-2"
-          role="toolbar"
-          aria-label="Document formatting"
-        >
-          <Button
-            type="button"
-            size="icon"
-            variant={editorState?.bold ? "secondary" : "ghost"}
-            aria-label="Bold"
-            aria-pressed={editorState?.bold}
-            disabled={!editor}
-            onClick={() => editor?.chain().focus().toggleBold().run()}
-          >
-            <HugeiconsIcon icon={TextBoldIcon} strokeWidth={2} />
-          </Button>
-          <Button
-            type="button"
-            size="icon"
-            variant={editorState?.italic ? "secondary" : "ghost"}
-            aria-label="Italic"
-            aria-pressed={editorState?.italic}
-            disabled={!editor}
-            onClick={() => editor?.chain().focus().toggleItalic().run()}
-          >
-            <HugeiconsIcon icon={TextItalicIcon} strokeWidth={2} />
-          </Button>
-          <Button
-            type="button"
-            size="icon"
-            variant={editorState?.strike ? "secondary" : "ghost"}
-            aria-label="Strikethrough"
-            aria-pressed={editorState?.strike}
-            disabled={!editor}
-            onClick={() => editor?.chain().focus().toggleStrike().run()}
-          >
-            <HugeiconsIcon icon={TextStrikethroughIcon} strokeWidth={2} />
-          </Button>
-
-          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-
-          <Button
-            type="button"
-            size="icon"
-            variant={editorState?.heading ? "secondary" : "ghost"}
-            aria-label="Heading"
-            aria-pressed={editorState?.heading}
-            disabled={!editor}
-            onClick={() =>
-              editor?.chain().focus().toggleHeading({ level: 2 }).run()
-            }
-          >
-            <HugeiconsIcon icon={Heading02Icon} strokeWidth={2} />
-          </Button>
-          <Button
-            type="button"
-            size="icon"
-            variant={editorState?.bulletList ? "secondary" : "ghost"}
-            aria-label="Bulleted list"
-            aria-pressed={editorState?.bulletList}
-            disabled={!editor}
-            onClick={() => editor?.chain().focus().toggleBulletList().run()}
-          >
-            <HugeiconsIcon icon={LeftToRightListBulletIcon} strokeWidth={2} />
-          </Button>
-          <Button
-            type="button"
-            size="icon"
-            variant={editorState?.orderedList ? "secondary" : "ghost"}
-            aria-label="Numbered list"
-            aria-pressed={editorState?.orderedList}
-            disabled={!editor}
-            onClick={() => editor?.chain().focus().toggleOrderedList().run()}
-          >
-            <HugeiconsIcon icon={LeftToRightListNumberIcon} strokeWidth={2} />
-          </Button>
-          <Button
-            type="button"
-            size="icon"
-            variant={editorState?.blockquote ? "secondary" : "ghost"}
-            aria-label="Block quote"
-            aria-pressed={editorState?.blockquote}
-            disabled={!editor}
-            onClick={() => editor?.chain().focus().toggleBlockquote().run()}
-          >
-            <HugeiconsIcon icon={LeftToRightBlockQuoteIcon} strokeWidth={2} />
-          </Button>
-          <Button
-            type="button"
-            size="icon"
-            variant={editorState?.codeBlock ? "secondary" : "ghost"}
-            aria-label="Code block"
-            aria-pressed={editorState?.codeBlock}
-            disabled={!editor}
-            onClick={() => editor?.chain().focus().toggleCodeBlock().run()}
-          >
-            <HugeiconsIcon icon={CodeIcon} strokeWidth={2} />
-          </Button>
-
-          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            aria-label="Undo"
-            disabled={!editorState?.canUndo}
-            onClick={() => editor?.chain().focus().undo().run()}
-          >
-            <HugeiconsIcon icon={Undo02Icon} strokeWidth={2} />
-          </Button>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            aria-label="Redo"
-            disabled={!editorState?.canRedo}
-            onClick={() => editor?.chain().focus().redo().run()}
-          >
-            <HugeiconsIcon icon={Redo02Icon} strokeWidth={2} />
-          </Button>
-        </div>
-
-        <CardContent className="p-0">
+          {editor ? (
+            <BubbleMenu
+              editor={editor}
+              pluginKey="resource-doc-selection-toolbar"
+              updateDelay={0}
+              options={bubbleMenuPosition}
+              appendTo={() => document.body}
+              shouldShow={({ editor: currentEditor, state, from, to }) =>
+                currentEditor.isEditable &&
+                from !== to &&
+                state.selection.$from.parent.inlineContent &&
+                state.selection.$to.parent.inlineContent &&
+                !currentEditor.isActive("codeBlock")
+              }
+            >
+              <div
+                className="z-50 flex items-center gap-0.5 rounded-lg border bg-popover/95 p-1 text-popover-foreground shadow-lg backdrop-blur-sm"
+                role="toolbar"
+                aria-label="Text formatting"
+              >
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant={editorState?.bold ? "secondary" : "ghost"}
+                  aria-label="Bold"
+                  aria-pressed={editorState?.bold}
+                  onClick={() => editor.chain().focus().toggleBold().run()}
+                >
+                  <HugeiconsIcon icon={TextBoldIcon} strokeWidth={2} />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant={editorState?.italic ? "secondary" : "ghost"}
+                  aria-label="Italic"
+                  aria-pressed={editorState?.italic}
+                  onClick={() => editor.chain().focus().toggleItalic().run()}
+                >
+                  <HugeiconsIcon icon={TextItalicIcon} strokeWidth={2} />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant={editorState?.strike ? "secondary" : "ghost"}
+                  aria-label="Strikethrough"
+                  aria-pressed={editorState?.strike}
+                  onClick={() => editor.chain().focus().toggleStrike().run()}
+                >
+                  <HugeiconsIcon icon={TextStrikethroughIcon} strokeWidth={2} />
+                </Button>
+              </div>
+            </BubbleMenu>
+          ) : null}
+          {editor ? (
+            <DragHandle
+              editor={editor}
+              className="resource-doc-drag-handle"
+              computePositionConfig={dragHandlePosition}
+              onNodeChange={({ node, pos }) =>
+                setHoveredBlock(node ? { pos, nodeSize: node.nodeSize } : null)
+              }
+            >
+              <div className="flex items-center rounded-md bg-background/95 p-0.5 text-muted-foreground shadow-sm ring-1 ring-foreground/10 backdrop-blur-sm">
+                <button
+                  type="button"
+                  className="flex size-6 items-center justify-center rounded-sm outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                  contentEditable={false}
+                  draggable={false}
+                  aria-label="Add block below"
+                  title="Add block below"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onDragStart={(event) => event.preventDefault()}
+                  onClick={addBlockAfterHoveredBlock}
+                >
+                  <HugeiconsIcon icon={Add01Icon} strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
+                  className="flex size-6 cursor-grab items-center justify-center rounded-sm outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:cursor-grabbing"
+                  contentEditable={false}
+                  aria-label="Drag block"
+                  title="Drag to reorder block"
+                >
+                  <HugeiconsIcon icon={DragDropVerticalIcon} strokeWidth={2} />
+                </button>
+              </div>
+            </DragHandle>
+          ) : null}
           <EditorContent editor={editor} />
-        </CardContent>
-      </Card>
     </div>
   )
 }

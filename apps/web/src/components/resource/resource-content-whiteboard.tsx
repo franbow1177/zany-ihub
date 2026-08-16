@@ -7,6 +7,9 @@ import type {
   ExcalidrawInitialDataState,
 } from "@excalidraw/excalidraw/types"
 import type { FileId } from "@excalidraw/excalidraw/element/types"
+import { useQuery, useZero } from "@rocicorp/zero/react"
+import { mutators } from "@workspace/zero/mutators"
+import { queries } from "@workspace/zero/queries"
 import { Badge } from "@workspace/ui/components/badge"
 import { Card, CardContent } from "@workspace/ui/components/card"
 import { Skeleton } from "@workspace/ui/components/skeleton"
@@ -16,7 +19,6 @@ import {
   apiFetch,
   whiteboardAssetUrl,
   type Resource,
-  type WhiteboardContent,
   type WhiteboardScene,
 } from "@/lib/api"
 
@@ -41,6 +43,10 @@ export function ResourceContentWhiteboard({
   resource: Resource
 }) {
   const { theme } = useTheme()
+  const zero = useZero()
+  const [whiteboard, whiteboardState] = useQuery(
+    queries.whiteboards.byID({ id: resource.id })
+  )
   const [initialData, setInitialData] =
     useState<ExcalidrawInitialDataState | null>(null)
   const [status, setStatus] = useState<
@@ -56,17 +62,14 @@ export function ResourceContentWhiteboard({
   const lastSavedSceneRef = useRef<string | null>(null)
 
   useEffect(() => {
+    if (!whiteboard || initialData) return
+    const currentWhiteboard = whiteboard
     const controller = new AbortController()
 
     async function load() {
       try {
-        const content = await apiFetch<WhiteboardContent>(
-          `/resources/${resource.id}/whiteboard`,
-          { signal: controller.signal }
-        )
-
         const entries = await Promise.all(
-          content.assets.map(async (asset) => {
+          currentWhiteboard.assets.map(async (asset) => {
             const response = await fetch(
               whiteboardAssetUrl(resource.id, asset.id),
               { credentials: "include", signal: controller.signal }
@@ -79,25 +82,27 @@ export function ResourceContentWhiteboard({
                 id: asset.id as FileId,
                 mimeType: asset.mimeType as BinaryFiles[string]["mimeType"],
                 dataURL,
-                created: asset.created,
+                created: asset.createdAt ?? Date.now(),
                 lastRetrieved: Date.now(),
               },
             ] as const
           })
         )
 
-        revisionRef.current = content.revision
-        const initialSignature = JSON.stringify(content.scene)
+        const scene = (currentWhiteboard.scene ?? {
+          elements: [],
+          appState: {},
+        }) as WhiteboardScene
+        revisionRef.current = currentWhiteboard.revision ?? 0
+        const initialSignature = JSON.stringify(scene)
         lastObservedSceneRef.current = initialSignature
         lastSavedSceneRef.current = initialSignature
         uploadedAssetIdsRef.current = new Set(
-          content.assets.map((asset) => asset.id)
+          currentWhiteboard.assets.map((asset) => asset.id)
         )
         setInitialData({
-          elements: content.scene
-            .elements as ExcalidrawInitialDataState["elements"],
-          appState: content.scene
-            .appState as ExcalidrawInitialDataState["appState"],
+          elements: scene.elements as ExcalidrawInitialDataState["elements"],
+          appState: scene.appState as ExcalidrawInitialDataState["appState"],
           files: Object.fromEntries(entries) as BinaryFiles,
           scrollToContent: true,
         })
@@ -117,7 +122,7 @@ export function ResourceContentWhiteboard({
 
     void load()
     return () => controller.abort()
-  }, [resource.id])
+  }, [initialData, resource.id, whiteboard])
 
   async function uploadNewAssets(files: BinaryFiles) {
     await Promise.all(
@@ -141,17 +146,20 @@ export function ResourceContentWhiteboard({
     setError(null)
     try {
       await uploadNewAssets(payload.files)
-      const saved = await apiFetch<WhiteboardContent>(
-        `/resources/${resource.id}/whiteboard`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({
-            scene: payload.scene,
-            revision: revisionRef.current,
-          }),
-        }
+      const expectedRevision = revisionRef.current
+      const result = zero.mutate(
+        mutators.whiteboards.update({
+          id: resource.id,
+          expectedRevision,
+          scene: payload.scene,
+          now: Date.now(),
+        })
       )
-      revisionRef.current = saved.revision
+      const serverResult = await result.server
+      if (serverResult.type === "error") {
+        throw new Error(serverResult.error.message)
+      }
+      revisionRef.current = expectedRevision + 1
       lastSavedSceneRef.current = payload.signature
       if (
         lastObservedSceneRef.current === payload.signature &&
@@ -187,7 +195,10 @@ export function ResourceContentWhiteboard({
     []
   )
 
-  if (!initialData && status === "loading") {
+  const queryError =
+    whiteboardState.type === "error" ? whiteboardState.error.message : null
+
+  if (!initialData && status === "loading" && !queryError) {
     return <Skeleton className="h-[70vh] min-h-[34rem] w-full rounded-xl" />
   }
 
@@ -195,7 +206,7 @@ export function ResourceContentWhiteboard({
     return (
       <Card>
         <CardContent className="p-6 text-sm text-destructive">
-          {error ?? "Could not load whiteboard"}
+          {error ?? queryError ?? "Could not load whiteboard"}
         </CardContent>
       </Card>
     )

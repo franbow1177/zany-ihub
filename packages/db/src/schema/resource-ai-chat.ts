@@ -1,3 +1,4 @@
+import { relations } from "drizzle-orm"
 import { jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core"
 import { resourceAgent } from "./resource-agent"
 import { resource } from "./resource"
@@ -18,3 +19,17 @@ export const resourceAiChat = pgTable("resource_ai_chat", {
     .$onUpdate(() => new Date())
     .notNull(),
 })
+
+export const resourceAiChatRelations = relations(
+  resourceAiChat,
+  ({ one }) => ({
+    resource: one(resource, {
+      fields: [resourceAiChat.id],
+      references: [resource.id],
+    }),
+    agent: one(resourceAgent, {
+      fields: [resourceAiChat.agentId],
+      references: [resourceAgent.id],
+    }),
+  })
+)

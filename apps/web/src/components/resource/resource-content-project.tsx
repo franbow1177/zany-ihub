@@ -27,6 +27,9 @@ import {
   Task01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { useQuery, useZero } from "@rocicorp/zero/react"
+import { mutators } from "@workspace/zero/mutators"
+import { queries } from "@workspace/zero/queries"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -48,8 +51,6 @@ import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
 
 import {
-  apiFetch,
-  type ProjectContent,
   type ProjectDetails,
   type ProjectStatus,
   type ProjectTask,
@@ -251,7 +252,19 @@ function TaskColumn({
 }
 
 export function ResourceContentProject({ resource }: { resource: Resource }) {
-  const [project, setProject] = useState<ProjectDetails | null>(null)
+  const zero = useZero()
+  const [projectRow, projectState] = useQuery(
+    queries.projects.byID({ id: resource.id })
+  )
+  const project: ProjectDetails | null = projectRow
+    ? {
+        id: projectRow.id,
+        status: projectRow.status ?? "active",
+        description: resource.description,
+        createdAt: projectRow.createdAt ?? 0,
+        updatedAt: projectRow.updatedAt ?? 0,
+      }
+    : null
   const [tasks, setTasks] = useState<ProjectTask[]>([])
   const [newTasks, setNewTasks] =
     useState<Record<ProjectTaskStatus, string>>(EMPTY_TASK_INPUTS)
@@ -268,31 +281,21 @@ export function ResourceContentProject({ resource }: { resource: Resource }) {
   )
 
   useEffect(() => {
-    const controller = new AbortController()
-
-    async function load() {
-      try {
-        const content = await apiFetch<ProjectContent>(
-          `/resources/${resource.id}/project`,
-          { signal: controller.signal }
-        )
-        setProject(content.project)
-        setTasks(normalizePositions(content.tasks))
-        setError(null)
-      } catch (loadError) {
-        if (loadError instanceof Error && loadError.name === "AbortError")
-          return
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Could not load project"
-        )
-      }
-    }
-
-    void load()
-    return () => controller.abort()
-  }, [resource.id])
+    if (!projectRow || activeTaskId) return
+    // Zero is an external live store; mirror it into the transient drag-and-drop model.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTasks(
+      normalizePositions(
+        projectRow.tasks.map((task) => ({
+          ...task,
+          status: task.status ?? "todo",
+          position: task.position ?? 0,
+          createdAt: task.createdAt ?? 0,
+          updatedAt: task.updatedAt ?? 0,
+        }))
+      )
+    )
+  }, [activeTaskId, projectRow])
 
   const completedCount = useMemo(
     () => tasks.filter((task) => task.status === "done").length,
@@ -307,11 +310,13 @@ export function ResourceContentProject({ resource }: { resource: Resource }) {
     setIsSavingProject(true)
     setError(null)
     try {
-      const updated = await apiFetch<ProjectDetails>(
-        `/resources/${resource.id}/project`,
-        { method: "PATCH", body: JSON.stringify({ status }) }
+      const result = zero.mutate(
+        mutators.projects.update({ id: resource.id, status, now: Date.now() })
       )
-      setProject(updated)
+      const serverResult = await result.server
+      if (serverResult.type === "error") {
+        throw new Error(serverResult.error.message)
+      }
     } catch (saveError) {
       setError(
         saveError instanceof Error
@@ -334,11 +339,39 @@ export function ResourceContentProject({ resource }: { resource: Resource }) {
     setCreatingStatus(status)
     setError(null)
     try {
-      const task = await apiFetch<ProjectTask>(
-        `/resources/${resource.id}/tasks`,
-        { method: "POST", body: JSON.stringify({ title, status }) }
+      const now = Math.round(performance.timeOrigin + event.timeStamp)
+      const task: ProjectTask = {
+        id: crypto.randomUUID(),
+        projectId: resource.id,
+        title,
+        description: null,
+        status,
+        position: tasks.filter((task) => task.status === status).length,
+        createdBy: "",
+        createdAt: now,
+        updatedAt: now,
+      }
+      const result = zero.mutate(
+        mutators.tasks.create({
+          id: task.id,
+          projectId: task.projectId,
+          title: task.title,
+          description: task.description,
+          status: task.status,
+          position: task.position,
+          now,
+        })
       )
-      setTasks((current) => normalizePositions([...current, task]))
+      const serverResult = await result.server
+      if (serverResult.type === "error") {
+        throw new Error(serverResult.error.message)
+      }
+      setTasks((current) =>
+        normalizePositions([
+          ...current.filter((currentTask) => currentTask.id !== task.id),
+          task,
+        ])
+      )
       setNewTasks((current) => ({ ...current, [status]: "" }))
     } catch (createError) {
       setError(
@@ -354,12 +387,17 @@ export function ResourceContentProject({ resource }: { resource: Resource }) {
   async function updateTaskTitle(taskId: string, title: string) {
     setError(null)
     try {
-      const updated = await apiFetch<ProjectTask>(`/tasks/${taskId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ title }),
-      })
+      const result = zero.mutate(
+        mutators.tasks.update({ id: taskId, title, now: Date.now() })
+      )
+      const serverResult = await result.server
+      if (serverResult.type === "error") {
+        throw new Error(serverResult.error.message)
+      }
       setTasks((current) =>
-        current.map((task) => (task.id === updated.id ? updated : task))
+        current.map((task) =>
+          task.id === taskId ? { ...task, title, updatedAt: Date.now() } : task
+        )
       )
     } catch (updateError) {
       setError(
@@ -373,7 +411,13 @@ export function ResourceContentProject({ resource }: { resource: Resource }) {
   async function deleteTask(taskId: string) {
     setError(null)
     try {
-      await apiFetch<ProjectTask>(`/tasks/${taskId}`, { method: "DELETE" })
+      const result = zero.mutate(
+        mutators.tasks.delete({ id: taskId, now: Date.now() })
+      )
+      const serverResult = await result.server
+      if (serverResult.type === "error") {
+        throw new Error(serverResult.error.message)
+      }
       setTasks((current) =>
         normalizePositions(current.filter((task) => task.id !== taskId))
       )
@@ -434,17 +478,22 @@ export function ResourceContentProject({ resource }: { resource: Resource }) {
     })
 
     try {
-      await Promise.all(
+      const results = await Promise.all(
         changed.map((task) =>
-          apiFetch<ProjectTask>(`/tasks/${task.id}`, {
-            method: "PATCH",
-            body: JSON.stringify({
-              status: task.status,
-              position: task.position,
-            }),
-          })
+          zero
+            .mutate(
+              mutators.tasks.update({
+                id: task.id,
+                status: task.status,
+                position: task.position,
+                now: Date.now(),
+              })
+            )
+            .server
         )
       )
+      const failed = results.find((result) => result.type === "error")
+      if (failed?.type === "error") throw new Error(failed.error.message)
     } catch (updateError) {
       setTasks(previousTasks)
       setError(
@@ -517,7 +566,10 @@ export function ResourceContentProject({ resource }: { resource: Resource }) {
     setActiveTaskId(null)
   }
 
-  if (!project && !error) {
+  const queryError =
+    projectState.type === "error" ? projectState.error.message : null
+
+  if (!project && !error && !queryError) {
     return (
       <div className="flex h-[calc(100svh-5.5rem)] flex-col gap-4 sm:h-[calc(100svh-6.5rem)] lg:h-[calc(100svh-7.5rem)]">
         <Skeleton className="h-14 w-full shrink-0" />
@@ -570,9 +622,9 @@ export function ResourceContentProject({ resource }: { resource: Resource }) {
         )}
       </div>
 
-      {error && (
+      {(error || queryError) && (
         <p className="shrink-0 text-sm text-destructive" role="alert">
-          {error}
+          {error || queryError}
         </p>
       )}
 

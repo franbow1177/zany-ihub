@@ -8,6 +8,7 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core"
+import { relations } from "drizzle-orm"
 import { resource } from "./resource"
 
 export type WhiteboardScene = {
@@ -50,4 +51,25 @@ export const resourceWhiteboardAsset = pgTable(
     primaryKey({ columns: [table.whiteboardId, table.id] }),
     index("resource_whiteboard_asset_whiteboard_idx").on(table.whiteboardId),
   ]
+)
+
+export const resourceWhiteboardRelations = relations(
+  resourceWhiteboard,
+  ({ one, many }) => ({
+    resource: one(resource, {
+      fields: [resourceWhiteboard.id],
+      references: [resource.id],
+    }),
+    assets: many(resourceWhiteboardAsset),
+  })
+)
+
+export const resourceWhiteboardAssetRelations = relations(
+  resourceWhiteboardAsset,
+  ({ one }) => ({
+    whiteboard: one(resourceWhiteboard, {
+      fields: [resourceWhiteboardAsset.whiteboardId],
+      references: [resourceWhiteboard.id],
+    }),
+  })
 )

@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm"
+import { relations, sql } from "drizzle-orm"
 import { check, pgTable, text, timestamp } from "drizzle-orm/pg-core"
 import { resource } from "./resource"
 
@@ -28,4 +28,20 @@ export const resourceBookmark = pgTable(
       sql`NOT (${table.targetResourceId} IS NOT NULL AND ${table.externalUrl} IS NOT NULL)`
     ),
   ]
+)
+
+export const resourceBookmarkRelations = relations(
+  resourceBookmark,
+  ({ one }) => ({
+    resource: one(resource, {
+      fields: [resourceBookmark.id],
+      references: [resource.id],
+      relationName: "bookmarkResource",
+    }),
+    target: one(resource, {
+      fields: [resourceBookmark.targetResourceId],
+      references: [resource.id],
+      relationName: "bookmarkTarget",
+    }),
+  })
 )

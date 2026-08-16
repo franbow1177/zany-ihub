@@ -13,11 +13,12 @@ From the repository root:
 
 ```sh
 docker compose down
-docker volume rm zany-ihub_postgres_data
+docker volume rm zany-ihub_postgres_data zany-ihub_zero_cache_data
 docker compose up -d
 ```
 
-This intentionally removes only `zany-ihub_postgres_data`. It preserves the
+This removes PostgreSQL and Zero's derived replica together. A fresh upstream
+database must not reuse the old logical-replication replica. It preserves the
 `zany-ihub_minio_data` object-storage volume. To erase object storage too, that
 must be a separate, explicit decision.
 
@@ -26,6 +27,7 @@ After startup, verify:
 ```sh
 docker compose ps
 curl -fsS http://localhost:3000/health
+curl -fsS http://localhost:4848/keepalive
 ```
 
 This policy must be retired before onboarding real users or retaining any local

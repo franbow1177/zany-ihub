@@ -43,6 +43,20 @@
       "when": 1786791479601,
       "tag": "0005_nice_randall_flagg",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786839821316,
+      "tag": "0006_dark_chameleon",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786847200000,
+      "tag": "0007_channel_creator_backfill",
+      "breakpoints": true
     }
   ]
 }

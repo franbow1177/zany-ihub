@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Link } from "react-router-dom"
 import {
   Bookmark01Icon,
@@ -6,6 +6,9 @@ import {
   Link01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { useQuery, useZero } from "@rocicorp/zero/react"
+import { mutators } from "@workspace/zero/mutators"
+import { queries } from "@workspace/zero/queries"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -25,7 +28,7 @@ import {
 } from "@workspace/ui/components/select"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 
-import { apiFetch, type BookmarkContent, type Resource } from "@/lib/api"
+import type { BookmarkContent, Resource } from "@/lib/api"
 
 export function ResourceContentBookmark({
   resource,
@@ -36,7 +39,34 @@ export function ResourceContentBookmark({
   resources: Resource[]
   workspaceId: string
 }) {
-  const [content, setContent] = useState<BookmarkContent | null>(null)
+  const zero = useZero()
+  const [bookmark, bookmarkState] = useQuery(
+    queries.bookmarks.byID({ id: resource.id })
+  )
+  const content = useMemo<BookmarkContent | null>(
+    () =>
+      bookmark
+        ? {
+            target: bookmark.externalUrl
+              ? { type: "url", url: bookmark.externalUrl }
+              : bookmark.targetResourceId
+                ? {
+                    type: "resource",
+                    resourceId: bookmark.targetResourceId,
+                    resource: bookmark.target
+                      ? {
+                          id: bookmark.target.id,
+                          name: bookmark.target.name,
+                          kind: bookmark.target.kind,
+                        }
+                      : null,
+                  }
+                : null,
+            updatedAt: bookmark.updatedAt ?? 0,
+          }
+        : null,
+    [bookmark]
+  )
   const [targetType, setTargetType] = useState<"resource" | "url">("url")
   const [targetResourceId, setTargetResourceId] = useState("")
   const [url, setUrl] = useState("")
@@ -44,66 +74,36 @@ export function ResourceContentBookmark({
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const controller = new AbortController()
-
-    async function load() {
-      try {
-        const bookmark = await apiFetch<BookmarkContent>(
-          `/resources/${resource.id}/bookmark`,
-          { signal: controller.signal }
-        )
-        setContent(bookmark)
-        if (bookmark.target?.type === "resource") {
-          setTargetType("resource")
-          setTargetResourceId(bookmark.target.resourceId)
-          setUrl("")
-        } else if (bookmark.target?.type === "url") {
-          setTargetType("url")
-          setUrl(bookmark.target.url)
-          setTargetResourceId("")
-        }
-        setError(null)
-      } catch (loadError) {
-        if (loadError instanceof Error && loadError.name === "AbortError") {
-          return
-        }
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Could not load bookmark"
-        )
-      }
+    if (content?.target?.type === "resource") {
+      // Zero is an external live store; refresh the local editor draft when its row changes.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTargetType("resource")
+      setTargetResourceId(content.target.resourceId)
+      setUrl("")
+    } else if (content?.target?.type === "url") {
+      setTargetType("url")
+      setUrl(content.target.url)
+      setTargetResourceId("")
     }
-
-    void load()
-    return () => controller.abort()
-  }, [resource.id])
+  }, [content])
 
   async function saveTarget() {
     setIsSaving(true)
     setError(null)
     try {
-      await apiFetch(`/resources/${resource.id}/bookmark`, {
-        method: "PATCH",
-        body: JSON.stringify({
+      const result = zero.mutate(
+        mutators.bookmarks.update({
+          id: resource.id,
           target:
             targetType === "resource"
               ? { type: "resource", resourceId: targetResourceId }
               : { type: "url", url: url.trim() },
-        }),
-      })
-      const bookmark = await apiFetch<BookmarkContent>(
-        `/resources/${resource.id}/bookmark`
+          now: Date.now(),
+        })
       )
-      setContent(bookmark)
-      if (bookmark.target?.type === "resource") {
-        setTargetType("resource")
-        setTargetResourceId(bookmark.target.resourceId)
-        setUrl("")
-      } else if (bookmark.target?.type === "url") {
-        setTargetType("url")
-        setUrl(bookmark.target.url)
-        setTargetResourceId("")
+      const serverResult = await result.server
+      if (serverResult.type === "error") {
+        throw new Error(serverResult.error.message)
       }
     } catch (saveError) {
       setError(
@@ -116,7 +116,10 @@ export function ResourceContentBookmark({
     }
   }
 
-  if (!content && !error) {
+  const queryError =
+    bookmarkState.type === "error" ? bookmarkState.error.message : null
+
+  if (!content && !error && !queryError) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-9 w-64" />
@@ -143,9 +146,9 @@ export function ResourceContentBookmark({
         </Badge>
       </div>
 
-      {error && (
+      {(error || queryError) && (
         <p className="text-sm text-destructive" role="alert">
-          {error}
+          {error || queryError}
         </p>
       )}
 

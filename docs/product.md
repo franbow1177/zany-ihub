@@ -36,6 +36,10 @@ The product name in the monorepo is `zanbase-ihub` / “Zany iHub”; treat “i
 | **Bookmark**   | Link to another resource in the same workspace or an external HTTP(S) URL                                                                  |
 | **Agent**      | Reusable model configuration with a persona and system instructions                                                                        |
 | **AI chat**    | Persistent AI conversation that targets either a direct model or a workspace agent                                                         |
+| **Chat**       | Human conversation resource specialized as a workspace channel, private DM, or discussion attached to another resource                     |
+| **Channel**    | Named chat with explicitly selected workspace members that appears in those participants' resource tree                                    |
+| **DM**         | Private chat between exactly two members of the same workspace                                                                             |
+| **Thread**     | One contextual discussion attached to another resource rather than to the folder tree                                                      |
 
 Kinds are first-class in the model while their content surfaces ship incrementally. Files, whiteboards, projects, and bookmarks have workspace-backed content. Document and table editors currently persist their content only in the browser and still need server persistence.
 
@@ -49,12 +53,12 @@ Kinds are first-class in the model while their content surfaces ship incremental
 6. **Tasks are project content** — tasks belong to a project and do not appear as independent resource-tree nodes.
 7. **Stable internal links** — bookmarks reference resource IDs; UI paths are derived rather than persisted.
 8. **Reusable AI behavior** — agents own identity and instructions; chats own conversation history and can switch between models and agents.
+9. **Contextual conversation** — human messages are normalized rows synchronized by Zero; participant channels are navigable resources, while DMs use their dedicated area and resource threads open from the workspace header discussion panel.
 
 ## Non-goals (for now)
 
 | Non-goal                                    | Note                                 |
 | ------------------------------------------- | ------------------------------------ |
-| Offline / realtime sync (e.g. Zero)         | Deferred                             |
 | Full Zanzibar / OpenFGA                     | Deferred; membership table is enough |
 | Email/password auth                         | Google OAuth only                    |
 | Multi-tenant billing / orgs above workspace | Not defined                          |

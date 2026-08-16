@@ -1,0 +1,24 @@
+{
+  "name": "@workspace/zero",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts",
+    "./queries": "./src/queries.ts",
+    "./mutators": "./src/mutators.ts"
+  },
+  "scripts": {
+    "generate": "drizzle-zero generate --config drizzle-zero.config.ts --output src/schema.ts --format",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@rocicorp/zero": "1.9.0",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "drizzle-zero": "^0.20.0",
+    "typescript": "~6"
+  }
+}

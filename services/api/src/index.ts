@@ -7,6 +7,7 @@ import { resourceContentRoutes } from "./routes/resource-content"
 import { resourceRoutes } from "./routes/resources"
 import { workspaceRoutes } from "./routes/workspaces"
 import { invitationRoutes } from "./routes/invitations"
+import { zeroRoutes } from "./routes/zero"
 
 export const app = new Elysia()
   .use(
@@ -19,6 +20,7 @@ export const app = new Elysia()
   )
   .get("/health", () => ({ ok: true }))
   .all("/api/auth/*", ({ request }) => auth.handler(request))
+  .use(zeroRoutes)
   .use(workspaceRoutes)
   .use(invitationRoutes)
   .use(resourceRoutes)

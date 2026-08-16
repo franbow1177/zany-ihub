@@ -1,5 +1,5 @@
 import { assertParentIsFolder, db, schema } from "@workspace/db"
-import { and, count, eq, isNull } from "drizzle-orm"
+import { and, count, eq, inArray, isNull, ne, or } from "drizzle-orm"
 import { Elysia, t } from "elysia"
 import { newId } from "../lib/ids"
 import { deleteObject, fileStorageKey, getObject, putObject } from "../lib/s3"
@@ -38,6 +38,28 @@ async function findResource(id: string) {
   return db.query.resource.findFirst({
     where: (row, { eq }) => eq(row.id, id),
   })
+}
+
+async function canAccessChatResource(resourceId: string, userId: string) {
+  const [chat] = await db
+    .select()
+    .from(schema.resourceChat)
+    .where(eq(schema.resourceChat.id, resourceId))
+    .limit(1)
+  if (!chat) return false
+  if (chat.type === "thread") return true
+
+  const [participant] = await db
+    .select({ id: schema.chatParticipant.id })
+    .from(schema.chatParticipant)
+    .where(
+      and(
+        eq(schema.chatParticipant.chatId, resourceId),
+        eq(schema.chatParticipant.userId, userId)
+      )
+    )
+    .limit(1)
+  return Boolean(participant)
 }
 
 async function findResourceFile(id: string) {
@@ -100,6 +122,7 @@ const resourceKind = t.Union([
   t.Literal("bookmark"),
   t.Literal("agent"),
   t.Literal("ai-chat"),
+  t.Literal("chat"),
 ])
 
 const bookmarkTarget = t.Union([
@@ -143,14 +166,36 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
         .select()
         .from(schema.resource)
         .where(
-          query.scope === "all"
-            ? eq(schema.resource.workspaceId, params.id)
-            : and(
-                eq(schema.resource.workspaceId, params.id),
-                parentId
-                  ? eq(schema.resource.parentId, parentId)
-                  : isNull(schema.resource.parentId)
+          and(
+            eq(schema.resource.workspaceId, params.id),
+            or(
+              ne(schema.resource.kind, "chat"),
+              inArray(
+                schema.resource.id,
+                db
+                  .select({ id: schema.resourceChat.id })
+                  .from(schema.resourceChat)
+                  .innerJoin(
+                    schema.chatParticipant,
+                    eq(
+                      schema.chatParticipant.chatId,
+                      schema.resourceChat.id
+                    )
+                  )
+                  .where(
+                    and(
+                      eq(schema.resourceChat.type, "channel"),
+                      eq(schema.chatParticipant.userId, sessionUser.id)
+                    )
+                  )
               )
+            ),
+            query.scope === "all"
+              ? undefined
+              : parentId
+                ? eq(schema.resource.parentId, parentId)
+                : isNull(schema.resource.parentId)
+          )
         )
     },
     {
@@ -172,6 +217,33 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
       if (body.parentId) {
         const parent = await findValidParent(body.parentId, params.id)
         if (!parent) return invalidParent(set)
+      }
+
+      const channelMemberIds = [
+        ...new Set(
+          (body.chatMemberIds ?? []).filter(
+            (userId) => userId !== sessionUser.id
+          )
+        ),
+      ]
+      if (body.kind === "chat") {
+        if (channelMemberIds.length === 0) {
+          set.status = 400
+          return { error: "Select at least one channel member" }
+        }
+        const selectedMemberships = await db
+          .select({ userId: schema.workspaceMember.userId })
+          .from(schema.workspaceMember)
+          .where(
+            and(
+              eq(schema.workspaceMember.workspaceId, params.id),
+              inArray(schema.workspaceMember.userId, channelMemberIds)
+            )
+          )
+        if (selectedMemberships.length !== channelMemberIds.length) {
+          set.status = 400
+          return { error: "Channel members must belong to the workspace" }
+        }
       }
 
       let bookmarkValues:
@@ -238,6 +310,15 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
           await tx.insert(schema.resourceAgent).values({ id })
         } else if (body.kind === "ai-chat") {
           await tx.insert(schema.resourceAiChat).values({ id })
+        } else if (body.kind === "chat") {
+          await tx.insert(schema.resourceChat).values({ id, type: "channel" })
+          await tx.insert(schema.chatParticipant).values(
+            [sessionUser.id, ...channelMemberIds].map((userId) => ({
+              id: newId(),
+              chatId: id,
+              userId,
+            }))
+          )
         }
 
         return resource
@@ -258,6 +339,9 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
         description: t.Optional(t.Union([t.String(), t.Null()])),
         icon: t.Optional(t.Union([t.String({ maxLength: 64 }), t.Null()])),
         bookmark: t.Optional(bookmarkTarget),
+        chatMemberIds: t.Optional(
+          t.Array(t.String({ minLength: 1 }), { minItems: 1 })
+        ),
       }),
     }
   )
@@ -273,6 +357,12 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
       sessionUser.id
     )
     if (!membership) return forbidden(set)
+    if (
+      resource.kind === "chat" &&
+      !(await canAccessChatResource(resource.id, sessionUser.id))
+    ) {
+      return notFound(set)
+    }
 
     if (resource.kind === "file") {
       const file = await findResourceFile(resource.id)
@@ -395,6 +485,23 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
         sessionUser.id
       )
       if (!membership) return forbidden(set)
+      if (
+        resource.kind === "chat" &&
+        !(await canAccessChatResource(resource.id, sessionUser.id))
+      ) {
+        return notFound(set)
+      }
+      if (resource.kind === "chat") {
+        const [chat] = await db
+          .select({ type: schema.resourceChat.type })
+          .from(schema.resourceChat)
+          .where(eq(schema.resourceChat.id, resource.id))
+          .limit(1)
+        if (!chat || chat.type !== "channel") {
+          set.status = 400
+          return { error: "Only channels have editable resource settings" }
+        }
+      }
 
       if (body.parentId) {
         const parent = await findValidParent(
@@ -450,6 +557,12 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
       sessionUser.id
     )
     if (!membership) return forbidden(set)
+    if (
+      resource.kind === "chat" &&
+      !(await canAccessChatResource(resource.id, sessionUser.id))
+    ) {
+      return notFound(set)
+    }
 
     if (resource.kind === "folder") {
       const [result] = await db
@@ -491,10 +604,26 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
       }
     }
 
-    const [deleted] = await db
-      .delete(schema.resource)
-      .where(eq(schema.resource.id, resource.id))
-      .returning()
+    const [deleted] = await db.transaction(async (tx) => {
+      const attachedThreads = await tx
+        .select({ id: schema.resourceChat.id })
+        .from(schema.resourceChat)
+        .where(eq(schema.resourceChat.targetResourceId, resource.id))
+
+      if (attachedThreads.length > 0) {
+        await tx.delete(schema.resource).where(
+          inArray(
+            schema.resource.id,
+            attachedThreads.map((thread) => thread.id)
+          )
+        )
+      }
+
+      return tx
+        .delete(schema.resource)
+        .where(eq(schema.resource.id, resource.id))
+        .returning()
+    })
 
     if (!deleted) throw new Error("Resource delete returned no row")
     return deleted

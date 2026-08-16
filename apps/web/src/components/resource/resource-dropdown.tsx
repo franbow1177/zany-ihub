@@ -9,19 +9,21 @@ import {
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
 
-import type { Resource } from "@/lib/api"
+import type { Resource, WorkspaceMember } from "@/lib/api"
 import { ResourceKindIcon } from "./resource-kind-icon"
 import { ResourceFormSheet } from "./resource-form-sheet"
 
 export function ResourceDropdown({
   resource,
   resources,
+  members,
   workspaceId,
   onUpdated,
   onDeleted,
 }: {
   resource: Resource
   resources: Resource[]
+  members: WorkspaceMember[]
   workspaceId: string
   onUpdated?: (resource: Resource) => void
   onDeleted?: (resource: Resource) => void
@@ -65,6 +67,7 @@ export function ResourceDropdown({
       <ResourceFormSheet
         workspaceId={workspaceId}
         resources={resources}
+        members={members}
         resource={resource}
         trigger={null}
         open={editOpen}

@@ -7,6 +7,9 @@ import {
   StopIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { useQuery, useZero } from "@rocicorp/zero/react"
+import { mutators } from "@workspace/zero/mutators"
+import { queries } from "@workspace/zero/queries"
 import { DefaultChatTransport, type UIMessage } from "ai"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
@@ -29,8 +32,8 @@ import { ResourceKindIcon } from "@/components/resource/resource-kind-icon"
 import {
   API_URL,
   apiFetch,
+  type AiModelOption,
   type AiChatContent,
-  type AiChatDetails,
   type Resource,
 } from "@/lib/api"
 
@@ -48,8 +51,8 @@ function ChatSession({
   resource: Resource
   content: AiChatContent
 }) {
+  const zero = useZero()
   const [input, setInput] = useState("")
-  const [chat, setChat] = useState(content.chat)
   const [isChangingTarget, setIsChangingTarget] = useState(false)
   const [targetError, setTargetError] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement | null>(null)
@@ -67,13 +70,13 @@ function ChatSession({
     transport,
   })
   const isStreaming = status === "submitted" || status === "streaming"
-  const targetValue = chat.agentId
-    ? `agent:${chat.agentId}`
-    : `model:${chat.model}`
-  const selectedAgent = chat.agentId
-    ? content.agents.find((agent) => agent.id === chat.agentId)
+  const targetValue = content.chat.agentId
+    ? `agent:${content.chat.agentId}`
+    : `model:${content.chat.model}`
+  const selectedAgent = content.chat.agentId
+    ? content.agents.find((agent) => agent.id === content.chat.agentId)
     : null
-  const activeModelId = selectedAgent?.model ?? chat.model
+  const activeModelId = selectedAgent?.model ?? content.chat.model
   const activeModel = content.models.find((model) => model.id === activeModelId)
 
   useEffect(() => {
@@ -87,11 +90,17 @@ function ChatSession({
       const target = value.startsWith("agent:")
         ? { type: "agent" as const, agentId: value.slice("agent:".length) }
         : { type: "model" as const, model: value.slice("model:".length) }
-      const updated = await apiFetch<AiChatDetails>(
-        `/resources/${resource.id}/ai-chat`,
-        { method: "PATCH", body: JSON.stringify({ target }) }
+      const result = zero.mutate(
+        mutators.chats.updateTarget({
+          id: resource.id,
+          target,
+          now: Date.now(),
+        })
       )
-      setChat(updated)
+      const serverResult = await result.server
+      if (serverResult.type === "error") {
+        throw new Error(serverResult.error.message)
+      }
     } catch (changeError) {
       setTargetError(
         changeError instanceof Error
@@ -297,19 +306,48 @@ function ChatSession({
 }
 
 export function ResourceContentAiChat({ resource }: { resource: Resource }) {
-  const [content, setContent] = useState<AiChatContent | null>(null)
+  const [chat, chatState] = useQuery(queries.chats.byID({ id: resource.id }))
+  const [agentRows = [], agentsState] = useQuery(
+    queries.agents.byWorkspace({ workspaceId: resource.workspaceId })
+  )
+  const [models, setModels] = useState<AiModelOption[]>([])
   const [error, setError] = useState<string | null>(null)
+  const content: AiChatContent | null = chat
+    ? {
+        chat: {
+          id: chat.id,
+          model: chat.model ?? "openrouter/free",
+          agentId: chat.agentId ?? null,
+          messages: (chat.messages ?? []) as UIMessage[],
+          createdAt: chat.createdAt ?? 0,
+          updatedAt: chat.updatedAt ?? 0,
+        },
+        models,
+        agents: agentRows.flatMap((agent) =>
+          agent.resource
+            ? [
+                {
+                  id: agent.id,
+                  name: agent.resource.name,
+                  icon: agent.resource.icon ?? null,
+                  description: agent.resource.description ?? null,
+                  model: agent.model ?? "openrouter/free",
+                },
+              ]
+            : []
+        ),
+      }
+    : null
 
   useEffect(() => {
     const controller = new AbortController()
 
     async function load() {
       try {
-        const next = await apiFetch<AiChatContent>(
-          `/resources/${resource.id}/ai-chat`,
-          { signal: controller.signal }
-        )
-        setContent(next)
+        const next = await apiFetch<AiModelOption[]>("/ai/models", {
+          signal: controller.signal,
+        })
+        setModels(next)
         setError(null)
       } catch (loadError) {
         if (loadError instanceof Error && loadError.name === "AbortError") return
@@ -325,12 +363,19 @@ export function ResourceContentAiChat({ resource }: { resource: Resource }) {
     return () => controller.abort()
   }, [resource.id])
 
-  if (!content && !error) {
+  const queryError =
+    chatState.type === "error"
+      ? chatState.error.message
+      : agentsState.type === "error"
+        ? agentsState.error.message
+        : null
+
+  if (!content && !error && !queryError) {
     return <Skeleton className="h-[calc(100svh-7.5rem)] min-h-[30rem] rounded-xl" />
   }
 
   if (!content) {
-    return <p className="text-sm text-destructive">{error}</p>
+    return <p className="text-sm text-destructive">{error || queryError}</p>
   }
 
   return <ChatSession key={resource.id} resource={resource} content={content} />

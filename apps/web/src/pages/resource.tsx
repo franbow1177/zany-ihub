@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { useNavigate, useParams } from "react-router-dom"
+import { useQuery } from "@rocicorp/zero/react"
+import { queries } from "@workspace/zero/queries"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 
 import { ResourceContent } from "@/components/resource/resource-content"
 import { WorkspaceShell } from "@/components/workspace/workspace-shell"
 import { useWorkspaceShellData } from "@/hooks/use-workspace-shell-data"
-import { apiFetch, type Resource } from "@/lib/api"
+import type { Resource } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
 
 export function ResourcePage() {
@@ -13,44 +15,13 @@ export function ResourcePage() {
   const navigate = useNavigate()
   const { data: session, isPending } = authClient.useSession()
   const shell = useWorkspaceShellData(workspaceId, Boolean(session))
-  const [resource, setResource] = useState<Resource | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!session || !workspaceId || !resourceId) return
-
-    const controller = new AbortController()
-
-    async function load() {
-      try {
-        const item = await apiFetch<Resource>(`/resources/${resourceId}`, {
-          signal: controller.signal,
-        })
-
-        if (item.workspaceId !== workspaceId) {
-          throw new Error("Resource does not belong to this workspace")
-        }
-
-        setResource(item)
-        setError(null)
-      } catch (requestError) {
-        if (
-          requestError instanceof Error &&
-          requestError.name === "AbortError"
-        ) {
-          return
-        }
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : "Could not load resource"
-        )
-      }
-    }
-
-    void load()
-    return () => controller.abort()
-  }, [session, workspaceId, resourceId])
+  const [resource, resourceState] = useQuery(
+    queries.resources.byID({ id: resourceId }),
+    { enabled: Boolean(session && resourceId) }
+  )
+  const [file, fileState] = useQuery(queries.files.byID({ id: resourceId }), {
+    enabled: Boolean(session && resource?.kind === "file"),
+  })
 
   useEffect(() => {
     if (!isPending && !session) navigate("/", { replace: true })
@@ -64,7 +35,32 @@ export function ResourcePage() {
     )
   }
 
-  const activeResource = resource?.id === resourceId ? resource : null
+  const resourceError =
+    resourceState.type === "error"
+      ? resourceState.error.message
+      : fileState.type === "error"
+        ? fileState.error.message
+        : null
+  const activeResource: Resource | null =
+    resource?.id === resourceId && resource.workspaceId === workspaceId
+      ? ({
+          ...resource,
+          ...(resource.kind === "file"
+            ? {
+                file: file
+                  ? {
+                      mimeType: file.mimeType ?? null,
+                      sizeBytes: file.sizeBytes ?? null,
+                      originalName: file.originalName ?? null,
+                      uploaded: Boolean(
+                        file.mimeType || file.sizeBytes || file.originalName
+                      ),
+                    }
+                  : null,
+              }
+            : {}),
+        } as Resource)
+      : null
 
   return (
     <WorkspaceShell
@@ -73,23 +69,23 @@ export function ResourcePage() {
       resources={shell.resources}
       members={shell.members}
       activeResourceId={resourceId}
+      discussionResource={
+        activeResource?.kind !== "chat" ? activeResource ?? undefined : undefined
+      }
       isLoading={shell.isLoading}
-      onResourceUpdated={(updated) => {
-        setResource(updated)
-        shell.reload()
-      }}
+      onResourceUpdated={() => shell.reload()}
       onResourceDeleted={() => {
         shell.reload()
         navigate(`/workspace/${workspaceId}`, { replace: true })
       }}
     >
-      {(error || shell.error) && (
+      {(resourceError || shell.error) && (
         <p className="mb-6 text-sm text-destructive" role="alert">
-          {error ?? shell.error}
+          {resourceError ?? shell.error}
         </p>
       )}
 
-      {!activeResource && !error ? (
+      {!activeResource && !resourceError ? (
         <div className="space-y-4">
           <Skeleton className="h-4 w-20" />
           <Skeleton className="h-9 w-64" />

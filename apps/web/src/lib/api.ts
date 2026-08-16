@@ -13,7 +13,7 @@ export type WorkspaceMember = {
   workspaceId: string
   userId: string
   role: "owner" | "member"
-  createdAt: string
+  createdAt: number
   name: string
   email: string
   image: string | null
@@ -54,6 +54,7 @@ export type ResourceKind =
   | "bookmark"
   | "agent"
   | "ai-chat"
+  | "chat"
 
 export type ResourceFileMeta = {
   mimeType: string | null
@@ -71,8 +72,8 @@ export type Resource = {
   description: string | null
   icon: string | null
   createdBy: string
-  createdAt: string
-  updatedAt: string
+  createdAt: number
+  updatedAt: number
   file?: ResourceFileMeta | null
 }
 
@@ -102,8 +103,8 @@ export type ProjectDetails = {
   id: string
   status: ProjectStatus
   description: string | null
-  createdAt: string
-  updatedAt: string
+  createdAt: number
+  updatedAt: number
 }
 
 export type ProjectTask = {
@@ -114,8 +115,8 @@ export type ProjectTask = {
   status: ProjectTaskStatus
   position: number
   createdBy: string
-  createdAt: string
-  updatedAt: string
+  createdAt: number
+  updatedAt: number
 }
 
 export type ProjectContent = {
@@ -133,7 +134,7 @@ export type BookmarkTarget =
 
 export type BookmarkContent = {
   target: BookmarkTarget | null
-  updatedAt: string
+  updatedAt: number
 }
 
 export type AiModelOption = {
@@ -150,8 +151,8 @@ export type AgentDetails = {
   model: string
   persona: string | null
   systemPrompt: string | null
-  createdAt: string
-  updatedAt: string
+  createdAt: number
+  updatedAt: number
 }
 
 export type AgentContent = {
@@ -172,8 +173,8 @@ export type AiChatDetails = {
   model: string
   agentId: string | null
   messages: UIMessage[]
-  createdAt: string
-  updatedAt: string
+  createdAt: number
+  updatedAt: number
 }
 
 export type AiChatContent = {

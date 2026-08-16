@@ -9,7 +9,7 @@ export type WorkspaceMentionItem = {
   resourceKind?: ResourceKind
   resourceIcon?: string | null
   resourceDescription?: string | null
-  updatedAt?: string
+  updatedAt?: number
   image?: string | null
   memberRole?: WorkspaceMember["role"]
 }

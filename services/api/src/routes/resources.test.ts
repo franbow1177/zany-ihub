@@ -22,8 +22,10 @@ const testAuth = betterAuth({
 let helpers: TestHelpers
 let owner: TestUser
 let outsider: TestUser
+let nonParticipant: TestUser
 let ownerHeaders: Headers
 let outsiderHeaders: Headers
+let nonParticipantHeaders: Headers
 const workspaceIds: string[] = []
 
 async function request(
@@ -71,12 +73,14 @@ async function createResource(
       | "bookmark"
       | "agent"
       | "ai-chat"
+      | "chat"
     parentId?: string
     description?: string | null
     icon?: string | null
     bookmark?:
       | { type: "resource"; resourceId: string }
       | { type: "url"; url: string }
+    chatMemberIds?: string[]
   }
 ) {
   const response = await request(
@@ -110,11 +114,20 @@ beforeAll(async () => {
     name: "Resource Outsider",
     email: `resource-outsider-${suffix}@example.com`,
   })
+  nonParticipant = helpers.createUser({
+    name: "Channel Nonparticipant",
+    email: `channel-nonparticipant-${suffix}@example.com`,
+  })
 
-  await Promise.all([helpers.saveUser(owner), helpers.saveUser(outsider)])
-  ;[ownerHeaders, outsiderHeaders] = await Promise.all([
+  await Promise.all([
+    helpers.saveUser(owner),
+    helpers.saveUser(outsider),
+    helpers.saveUser(nonParticipant),
+  ])
+  ;[ownerHeaders, outsiderHeaders, nonParticipantHeaders] = await Promise.all([
     helpers.getAuthHeaders({ userId: owner.id }),
     helpers.getAuthHeaders({ userId: outsider.id }),
+    helpers.getAuthHeaders({ userId: nonParticipant.id }),
   ])
 })
 
@@ -127,6 +140,7 @@ afterAll(async () => {
   await Promise.all([
     helpers.deleteUser(owner.id),
     helpers.deleteUser(outsider.id),
+    helpers.deleteUser(nonParticipant.id),
   ])
 })
 
@@ -406,6 +420,88 @@ describe("resource routes", () => {
       kind: "file",
       file: { uploaded: false },
     })
+  })
+
+  test("creates a channel for chat resources and exposes it in navigation", async () => {
+    const workspace = await createWorkspace("Chat Channel")
+    const missingMembersResponse = await request(
+      `/workspaces/${workspace.id}/resources`,
+      {
+        method: "POST",
+        body: JSON.stringify({ name: "Empty channel", kind: "chat" }),
+      },
+      ownerHeaders
+    )
+    expect(missingMembersResponse.status).toBe(400)
+
+    await db.insert(schema.workspaceMember).values({
+      id: crypto.randomUUID(),
+      workspaceId: workspace.id,
+      userId: outsider.id,
+      role: "member",
+    })
+    await db.insert(schema.workspaceMember).values({
+      id: crypto.randomUUID(),
+      workspaceId: workspace.id,
+      userId: nonParticipant.id,
+      role: "member",
+    })
+    const resource = await createResource(workspace.id, {
+      name: "General",
+      kind: "chat",
+      chatMemberIds: [outsider.id],
+    })
+
+    const chat = await db.query.resourceChat.findFirst({
+      where: (row, { eq }) => eq(row.id, resource.id),
+    })
+    expect(chat).toMatchObject({
+      id: resource.id,
+      type: "channel",
+      targetResourceId: null,
+      directKey: null,
+    })
+    const participants = await db.query.chatParticipant.findMany({
+      where: (row, { eq }) => eq(row.chatId, resource.id),
+    })
+    expect(participants.map((participant) => participant.userId).sort()).toEqual(
+      [owner.id, outsider.id].sort()
+    )
+
+    const response = await request(
+      `/workspaces/${workspace.id}/resources?scope=all`,
+      {},
+      ownerHeaders
+    )
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: resource.id,
+          name: "General",
+          kind: "chat",
+        }),
+      ])
+    )
+
+    const hiddenListResponse = await request(
+      `/workspaces/${workspace.id}/resources?scope=all`,
+      {},
+      nonParticipantHeaders
+    )
+    expect(hiddenListResponse.status).toBe(200)
+    expect(await hiddenListResponse.json()).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: resource.id }),
+      ])
+    )
+
+    const hiddenDetailResponse = await request(
+      `/resources/${resource.id}`,
+      {},
+      nonParticipantHeaders
+    )
+    expect(hiddenDetailResponse.status).toBe(404)
   })
 
   test("creates and saves a whiteboard with optimistic revisions", async () => {

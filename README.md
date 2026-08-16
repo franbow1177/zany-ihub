@@ -4,7 +4,8 @@ Agent / AI context starts at [CLAUDE.md](CLAUDE.md) → [docs/product.md](docs/p
 
 ## Local development (OrbStack / Docker)
 
-Everything except Google OAuth runs in Compose containers (Postgres, migrate, API, web).
+Everything except Google OAuth runs in Compose containers (Postgres, migrate,
+MinIO, API, Zero Cache, and web).
 
 1. Copy env and fill Google OAuth + a long `BETTER_AUTH_SECRET`:
 
@@ -22,6 +23,7 @@ docker compose up --build
 
 - Web: http://localhost:5173
 - API health: http://localhost:3000/health
+- Zero Cache health: http://localhost:4848/keepalive
 - Postgres (from host): `localhost:5433` (maps to container `5432`)
 - MinIO API: `localhost:9000` · Console: http://localhost:9001 (`minioadmin` / `minioadmin`)
 
@@ -32,6 +34,11 @@ Before real users exist, local PostgreSQL is intentionally disposable. See
 policy and command.
 
 Inside containers, the API talks to Postgres at `postgres:5432` and MinIO at `minio:9000` (Compose overrides those URLs).
+
+Zero Cache runs as its own long-lived service on port `4848`. It maintains the
+logical-replication replica and serves the web app's live relational queries.
+The API remains the trusted query/mutation endpoint: it validates the forwarded
+Better Auth cookie and workspace membership before touching Postgres.
 
 File resources (`kind: file`) store bytes in the MinIO `zany-ihub` bucket via a 1:1 `resource_file` row. Swap MinIO for Cloudflare R2 later by changing `S3_*` env vars (same S3 API).
 
@@ -59,4 +66,6 @@ Set in `.env`:
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 
-`BETTER_AUTH_URL`, `WEB_ORIGIN`, and `VITE_API_URL` must stay on `localhost` URLs so the browser and Google redirect stay aligned.
+`BETTER_AUTH_URL`, `WEB_ORIGIN`, `VITE_API_URL`, and
+`VITE_ZERO_CACHE_URL` must stay on `localhost` URLs so cookies, Zero, and the
+Google redirect stay aligned.

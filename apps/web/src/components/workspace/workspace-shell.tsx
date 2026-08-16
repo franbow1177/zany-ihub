@@ -1,4 +1,3 @@
-import { Separator } from "@workspace/ui/components/separator"
 import {
   SidebarInset,
   SidebarProvider,
@@ -7,6 +6,7 @@ import {
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
 
 import type { Resource, Workspace, WorkspaceMember } from "@/lib/api"
+import { ResourceDiscussionPanel } from "../resource/resource-discussion"
 import { WorkspaceBreadcrumb } from "./workspace-breadcrumb"
 import { WorkspaceMembers } from "./workspace-members"
 import { WorkspaceSearch } from "./workspace-search"
@@ -18,6 +18,7 @@ export function WorkspaceShell({
   resources,
   members,
   activeResourceId,
+  discussionResource,
   isLoading,
   onResourceUpdated,
   onResourceDeleted,
@@ -28,6 +29,7 @@ export function WorkspaceShell({
   resources: Resource[]
   members: WorkspaceMember[]
   activeResourceId?: string
+  discussionResource?: Resource
   isLoading: boolean
   onResourceUpdated?: (resource: Resource) => void
   onResourceDeleted?: (resource: Resource) => void
@@ -46,13 +48,13 @@ export function WorkspaceShell({
           isLoading={isLoading}
         />
         <SidebarInset className="min-w-0">
-          <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between gap-3 border-b bg-background/95 px-4 backdrop-blur supports-backdrop-filter:bg-background/80">
+          <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between gap-3 px-3 bg-background">
             <div className="flex min-w-0 items-center gap-2">
-              <SidebarTrigger className="-ml-1" />
-              <Separator orientation="vertical" className="h-4" />
+              <SidebarTrigger />
               <WorkspaceBreadcrumb
                 workspace={workspace}
                 resources={resources}
+                members={members}
                 activeResourceId={activeResourceId}
                 isLoading={isLoading}
                 onResourceUpdated={onResourceUpdated}
@@ -60,6 +62,12 @@ export function WorkspaceShell({
               />
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
+              {discussionResource && (
+                <ResourceDiscussionPanel
+                  key={discussionResource.id}
+                  resource={discussionResource}
+                />
+              )}
               {workspace && (
                 <WorkspaceSearch
                   workspaceId={workspace.id}

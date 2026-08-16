@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react"
 import { AiUserIcon, FloppyDiskIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { useQuery, useZero } from "@rocicorp/zero/react"
+import { mutators } from "@workspace/zero/mutators"
+import { queries } from "@workspace/zero/queries"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -23,13 +26,34 @@ import { Textarea } from "@workspace/ui/components/textarea"
 
 import {
   apiFetch,
+  type AiModelOption,
   type AgentContent,
-  type AgentDetails,
   type Resource,
 } from "@/lib/api"
 
 export function ResourceContentAgent({ resource }: { resource: Resource }) {
-  const [content, setContent] = useState<AgentContent | null>(null)
+  const zero = useZero()
+  const [agent, agentState] = useQuery(
+    queries.agents.byID({ id: resource.id })
+  )
+  const [models, setModels] = useState<AiModelOption[]>([])
+  const content = useMemo<AgentContent | null>(
+    () =>
+      agent
+        ? {
+            agent: {
+              id: agent.id,
+              model: agent.model ?? "openrouter/free",
+              persona: agent.persona ?? null,
+              systemPrompt: agent.systemPrompt ?? null,
+              createdAt: agent.createdAt ?? 0,
+              updatedAt: agent.updatedAt ?? 0,
+            },
+            models,
+          }
+        : null,
+    [agent, models]
+  )
   const [model, setModel] = useState("")
   const [persona, setPersona] = useState("")
   const [systemPrompt, setSystemPrompt] = useState("")
@@ -41,14 +65,10 @@ export function ResourceContentAgent({ resource }: { resource: Resource }) {
 
     async function load() {
       try {
-        const next = await apiFetch<AgentContent>(
-          `/resources/${resource.id}/agent`,
-          { signal: controller.signal }
-        )
-        setContent(next)
-        setModel(next.agent.model)
-        setPersona(next.agent.persona ?? "")
-        setSystemPrompt(next.agent.systemPrompt ?? "")
+        const next = await apiFetch<AiModelOption[]>("/ai/models", {
+          signal: controller.signal,
+        })
+        setModels(next)
         setError(null)
       } catch (loadError) {
         if (loadError instanceof Error && loadError.name === "AbortError") return
@@ -61,6 +81,15 @@ export function ResourceContentAgent({ resource }: { resource: Resource }) {
     void load()
     return () => controller.abort()
   }, [resource.id])
+
+  useEffect(() => {
+    if (!agent) return
+    // Zero is an external live store; refresh the local editor draft when its row changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setModel(agent.model ?? "openrouter/free")
+    setPersona(agent.persona ?? "")
+    setSystemPrompt(agent.systemPrompt ?? "")
+  }, [agent])
 
   const hasChanges = useMemo(() => {
     if (!content) return false
@@ -76,20 +105,19 @@ export function ResourceContentAgent({ resource }: { resource: Resource }) {
     setIsSaving(true)
     setError(null)
     try {
-      const agent = await apiFetch<AgentDetails>(
-        `/resources/${resource.id}/agent`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({
-            model,
-            persona: persona.trim() || null,
-            systemPrompt: systemPrompt.trim() || null,
-          }),
-        }
+      const result = zero.mutate(
+        mutators.agents.update({
+          id: resource.id,
+          model,
+          persona: persona.trim() || null,
+          systemPrompt: systemPrompt.trim() || null,
+          now: Date.now(),
+        })
       )
-      setContent((current) => (current ? { ...current, agent } : current))
-      setPersona(agent.persona ?? "")
-      setSystemPrompt(agent.systemPrompt ?? "")
+      const serverResult = await result.server
+      if (serverResult.type === "error") {
+        throw new Error(serverResult.error.message)
+      }
     } catch (saveError) {
       setError(
         saveError instanceof Error ? saveError.message : "Could not save agent"
@@ -99,7 +127,9 @@ export function ResourceContentAgent({ resource }: { resource: Resource }) {
     }
   }
 
-  if (!content && !error) {
+  const queryError = agentState.type === "error" ? agentState.error.message : null
+
+  if (!content && !error && !queryError) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-16 w-72" />
@@ -125,9 +155,9 @@ export function ResourceContentAgent({ resource }: { resource: Resource }) {
         )}
       </div>
 
-      {error && (
+      {(error || queryError) && (
         <p className="text-sm text-destructive" role="alert">
-          {error}
+          {error || queryError}
         </p>
       )}
 

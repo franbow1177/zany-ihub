@@ -11,7 +11,7 @@ import { Skeleton } from "@workspace/ui/components/skeleton"
 
 import { ResourceDropdown } from "@/components/resource/resource-dropdown"
 import { ResourceKindIcon } from "@/components/resource/resource-kind-icon"
-import type { Resource, Workspace } from "@/lib/api"
+import type { Resource, Workspace, WorkspaceMember } from "@/lib/api"
 
 function buildResourcePath(resources: Resource[], activeResourceId?: string) {
   if (!activeResourceId) return []
@@ -33,6 +33,7 @@ function buildResourcePath(resources: Resource[], activeResourceId?: string) {
 export function WorkspaceBreadcrumb({
   workspace,
   resources,
+  members,
   activeResourceId,
   isLoading,
   onResourceUpdated,
@@ -40,6 +41,7 @@ export function WorkspaceBreadcrumb({
 }: {
   workspace: Workspace | null
   resources: Resource[]
+  members: WorkspaceMember[]
   activeResourceId?: string
   isLoading: boolean
   onResourceUpdated?: (resource: Resource) => void
@@ -79,6 +81,7 @@ export function WorkspaceBreadcrumb({
                     <ResourceDropdown
                       resource={resource}
                       resources={resources}
+                      members={members}
                       workspaceId={workspace.id}
                       onUpdated={onResourceUpdated}
                       onDeleted={onResourceDeleted}
