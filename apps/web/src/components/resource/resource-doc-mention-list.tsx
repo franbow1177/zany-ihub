@@ -56,7 +56,10 @@ export const ResourceDocMentionList = forwardRef<
   }))
 
   return (
-    <div className="w-80 overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg">
+    <div
+      data-suggestion-list
+      className="w-80 overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg"
+    >
       <div className="border-b px-3 py-2 text-xs font-medium text-muted-foreground">
         Mention a resource or member
       </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Link, useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams } from "react-router-dom"
 import { Delete02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
@@ -19,7 +19,7 @@ import {
   AvatarImage,
 } from "@workspace/ui/components/avatar"
 import { Badge } from "@workspace/ui/components/badge"
-import { Button, buttonVariants } from "@workspace/ui/components/button"
+import { Button } from "@workspace/ui/components/button"
 import {
   Select,
   SelectContent,
@@ -139,17 +139,9 @@ export function MembersPage() {
           }
           title={WORKSPACE_NAV_CONFIG.members.label}
           actions={
-            canManage && (
-              <>
-                <Link
-                  className={buttonVariants({ variant: "outline" })}
-                  to={`/workspace/${workspaceId}/audit`}
-                >
-                  Audit log
-                </Link>
-                <InviteMemberDialog workspaceId={workspaceId} />
-              </>
-            )
+            canManage ? (
+              <InviteMemberDialog workspaceId={workspaceId} />
+            ) : undefined
           }
         />
 
@@ -169,13 +161,7 @@ export function MembersPage() {
             ))}
           </div>
         ) : (
-          <section className="space-y-2" aria-labelledby="member-list-title">
-            <div className="flex items-center gap-2">
-              <h2 id="member-list-title" className="text-lg font-semibold">
-                People
-              </h2>
-              <Badge variant="secondary">{members.length}</Badge>
-            </div>
+          <section className="space-y-2" aria-label="Members">
             <div className="space-y-2">
               {members.map((member) => {
                 const isSelf = member.userId === session.user.id

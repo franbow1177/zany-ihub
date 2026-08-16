@@ -9,17 +9,9 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import DragHandle from "@tiptap/extension-drag-handle-react"
 import { Placeholder } from "@tiptap/extensions"
-import Mention from "@tiptap/extension-mention"
-import {
-  EditorContent,
-  ReactNodeViewRenderer,
-  ReactRenderer,
-  useEditor,
-  useEditorState,
-} from "@tiptap/react"
+import { EditorContent, useEditor, useEditorState } from "@tiptap/react"
 import { BubbleMenu } from "@tiptap/react/menus"
 import StarterKit from "@tiptap/starter-kit"
-import { exitSuggestion } from "@tiptap/suggestion"
 import { useQuery, useZero } from "@rocicorp/zero/react"
 import { mutators } from "@workspace/zero/mutators"
 import { queries } from "@workspace/zero/queries"
@@ -27,18 +19,10 @@ import { Button } from "@workspace/ui/components/button"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 
 import type { Resource, WorkspaceMember } from "@/lib/api"
-import {
-  buildWorkspaceMentionItems,
-  filterWorkspaceMentionItems,
-} from "@/lib/workspace-mentions"
-import {
-  ResourceDocMentionList,
-  type ResourceDocMentionListHandle,
-  type ResourceDocMentionListProps,
-} from "./resource-doc-mention-list"
-import { ResourceDocMention } from "./resource-doc-mention"
+import { buildWorkspaceMentionItems } from "@/lib/workspace-mentions"
 import { ResourceDocSlashCommand } from "./resource-doc-slash-command"
 import { ResourcePageHeader } from "./resource-page-header"
+import { createWorkspaceMentionExtension } from "./resource-rich-text-mention"
 
 const dragHandlePosition = {
   placement: "left-start" as const,
@@ -140,59 +124,7 @@ export function ResourceContentDoc({
         Placeholder.configure({
           placeholder: "Write something, or press '/' for commands…",
         }),
-        Mention.extend({
-          addNodeView() {
-            return ReactNodeViewRenderer(
-              (props) => (
-                <ResourceDocMention
-                  {...props}
-                  mentionItems={getMentionItems()}
-                />
-              ),
-              { as: "span" }
-            )
-          },
-        }).configure({
-          HTMLAttributes: { class: "workspace-mention" },
-          deleteTriggerWithBackspace: true,
-          renderText: ({ node }) => `@${node.attrs.label ?? node.attrs.id}`,
-          suggestion: {
-            char: "@",
-            items: ({ query }) =>
-              filterWorkspaceMentionItems(getMentionItems(), query),
-            render: () => {
-              let component: ReactRenderer<
-                ResourceDocMentionListHandle,
-                ResourceDocMentionListProps
-              > | null = null
-              let unmount: (() => void) | null = null
-
-              return {
-                onStart: (props) => {
-                  component = new ReactRenderer(ResourceDocMentionList, {
-                    props,
-                    editor: props.editor,
-                  })
-                  unmount = props.mount(component.element)
-                },
-                onUpdate: (props) => component?.updateProps(props),
-                onKeyDown: (props) => {
-                  if (props.event.key === "Escape") {
-                    exitSuggestion(props.view)
-                    return true
-                  }
-                  return component?.ref?.onKeyDown(props) ?? false
-                },
-                onExit: () => {
-                  unmount?.()
-                  component?.destroy()
-                  component = null
-                  unmount = null
-                },
-              }
-            },
-          },
-        }),
+        createWorkspaceMentionExtension(getMentionItems),
       ],
       content: "",
       editorProps: {

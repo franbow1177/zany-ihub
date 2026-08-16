@@ -53,17 +53,29 @@ import {
   WORKSPACE_NAV_CONFIG,
 } from "@/lib/resource-kind"
 import { ResourceKindIcon } from "@/components/resource/resource-kind-icon"
+import {
+  ResourceDropdown,
+  ResourceDropdownSidebarTrigger,
+} from "@/components/resource/resource-dropdown"
 import { ResourceFormSheet } from "@/components/resource/resource-form-sheet"
 import { WorkspacesDropdown } from "./workspaces-dropdown"
 
 function ResourceSubmenu({
   resources,
+  allResources,
+  members,
   workspaceId,
   activeResourceId,
+  onResourceUpdated,
+  onResourceDeleted,
 }: {
   resources: Resource[]
+  allResources: Resource[]
+  members: WorkspaceMember[]
   workspaceId: string
   activeResourceId?: string
+  onResourceUpdated?: (resource: Resource) => void
+  onResourceDeleted?: (resource: Resource) => void
 }) {
   if (resources.length === 0) {
     return (
@@ -78,7 +90,7 @@ function ResourceSubmenu({
       {resources.map((resource) => (
         <SidebarMenuSubItem key={resource.id}>
           <SidebarMenuSubButton
-            className="h-8 pr-0 text-sm [&_svg]:size-4"
+            className="h-8 pr-7 text-sm [&_svg]:size-4"
             isActive={resource.id === activeResourceId}
             render={
               <Link to={`/workspace/${workspaceId}/resource/${resource.id}`} />
@@ -87,6 +99,19 @@ function ResourceSubmenu({
             <ResourceKindIcon kind={resource.kind} icon={resource.icon} />
             <span>{resource.name}</span>
           </SidebarMenuSubButton>
+          <ResourceDropdown
+            resource={resource}
+            resources={allResources}
+            members={members}
+            workspaceId={workspaceId}
+            align="end"
+            side="right"
+            trigger={
+              <ResourceDropdownSidebarTrigger resourceName={resource.name} />
+            }
+            onUpdated={onResourceUpdated}
+            onDeleted={onResourceDeleted}
+          />
         </SidebarMenuSubItem>
       ))}
     </SidebarMenuSub>
@@ -135,6 +160,8 @@ function CollapsibleResourceGroup({
   allResources,
   members,
   defaultOpen = true,
+  onResourceUpdated,
+  onResourceDeleted,
 }: {
   label: string
   icon: IconSvgElement
@@ -145,6 +172,8 @@ function CollapsibleResourceGroup({
   allResources?: Resource[]
   members?: WorkspaceMember[]
   defaultOpen?: boolean
+  onResourceUpdated?: (resource: Resource) => void
+  onResourceDeleted?: (resource: Resource) => void
 }) {
   const navigate = useNavigate()
   const [open, setOpen] = useState(defaultOpen)
@@ -186,8 +215,12 @@ function CollapsibleResourceGroup({
           <CollapsibleContent>
             <ResourceSubmenu
               resources={resources}
+              allResources={allResources ?? resources}
+              members={members ?? []}
               workspaceId={workspaceId}
               activeResourceId={activeResourceId}
+              onResourceUpdated={onResourceUpdated}
+              onResourceDeleted={onResourceDeleted}
             />
           </CollapsibleContent>
           {createKind && allResources && members && (
@@ -217,6 +250,8 @@ export function WorkspaceSidebar({
   members,
   activeResourceId,
   isLoading,
+  onResourceUpdated,
+  onResourceDeleted,
 }: {
   workspace: Workspace | null
   workspaces: Workspace[]
@@ -224,6 +259,8 @@ export function WorkspaceSidebar({
   members: WorkspaceMember[]
   activeResourceId?: string
   isLoading: boolean
+  onResourceUpdated?: (resource: Resource) => void
+  onResourceDeleted?: (resource: Resource) => void
 }) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -388,6 +425,10 @@ export function WorkspaceSidebar({
                 resources={recent}
                 workspaceId={workspace.id}
                 activeResourceId={activeResourceId}
+                allResources={resources}
+                members={members}
+                onResourceUpdated={onResourceUpdated}
+                onResourceDeleted={onResourceDeleted}
               />
             </CollapsibleSidebarGroup>
             <CollapsibleSidebarGroup label="Resources">
@@ -412,6 +453,8 @@ export function WorkspaceSidebar({
                       defaultOpen={items.some(
                         (item) => item.id === activeResourceId
                       )}
+                      onResourceUpdated={onResourceUpdated}
+                      onResourceDeleted={onResourceDeleted}
                     />
                   )
                 })}

@@ -1,11 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useChat } from "@ai-sdk/react"
-import {
-  AiUserIcon,
-  ArrowUp02Icon,
-  StopIcon,
-} from "@hugeicons/core-free-icons"
+import { AiUserIcon, ArrowUp02Icon, StopIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import type { JSONContent } from "@tiptap/core"
 import { useQuery, useZero } from "@rocicorp/zero/react"
 import { mutators } from "@workspace/zero/mutators"
 import { queries } from "@workspace/zero/queries"
@@ -22,7 +19,6 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select"
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import { Textarea } from "@workspace/ui/components/textarea"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { ResourceKindIcon } from "@/components/resource/resource-kind-icon"
@@ -32,11 +28,22 @@ import {
   type AiModelOption,
   type AiChatContent,
   type Resource,
+  type WorkspaceMember,
 } from "@/lib/api"
 import { RESOURCE_KIND_CONFIG } from "@/lib/resource-kind"
+import { buildWorkspaceMentionItems } from "@/lib/workspace-mentions"
+import {
+  ResourceChatComposer,
+  ResourceChatEditor,
+  type ResourceChatEditorHandle,
+  ResourceChatMessage,
+} from "./resource-chat-rich-text"
+import { messageMetadataRichText } from "./resource-chat-rich-text-utils"
 import { ResourcePageHeader } from "./resource-page-header"
 
-function messageText(message: UIMessage) {
+type AiChatMessage = UIMessage<{ richText?: JSONContent }>
+
+function messageText(message: AiChatMessage) {
   return message.parts
     .filter((part) => part.type === "text")
     .map((part) => part.text)
@@ -46,17 +53,28 @@ function messageText(message: UIMessage) {
 function ChatSession({
   resource,
   content,
+  resources,
+  members,
   compact = false,
 }: {
   resource: Resource
   content: AiChatContent
+  resources: Resource[]
+  members: WorkspaceMember[]
   compact?: boolean
 }) {
   const zero = useZero()
-  const [input, setInput] = useState("")
+  const [inputEmpty, setInputEmpty] = useState(true)
   const [isChangingTarget, setIsChangingTarget] = useState(false)
   const [targetError, setTargetError] = useState<string | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement | null>(null)
+  const formRef = useRef<HTMLFormElement | null>(null)
+  const editorRef = useRef<ResourceChatEditorHandle | null>(null)
+  const mentionItems = useMemo(
+    () => buildWorkspaceMentionItems(resources, members),
+    [resources, members]
+  )
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -65,11 +83,13 @@ function ChatSession({
       }),
     [resource.id]
   )
-  const { messages, sendMessage, status, error, stop } = useChat({
-    id: resource.id,
-    messages: content.chat.messages,
-    transport,
-  })
+  const { messages, sendMessage, status, error, stop } = useChat<AiChatMessage>(
+    {
+      id: resource.id,
+      messages: content.chat.messages as AiChatMessage[],
+      transport,
+    }
+  )
   const isStreaming = status === "submitted" || status === "streaming"
   const targetValue = content.chat.agentId
     ? `agent:${content.chat.agentId}`
@@ -115,10 +135,24 @@ function ChatSession({
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const text = input.trim()
-    if (!text || isStreaming || isChangingTarget) return
-    setInput("")
-    await sendMessage({ text })
+    const value = editorRef.current?.getValue()
+    if (!value?.text || isStreaming || isChangingTarget) return
+
+    editorRef.current?.clear()
+    setSubmitError(null)
+    try {
+      await sendMessage({
+        text: value.text,
+        metadata: { richText: value.content },
+      })
+    } catch (sendError) {
+      editorRef.current?.setContent(value.content)
+      setSubmitError(
+        sendError instanceof Error
+          ? sendError.message
+          : "Could not send message"
+      )
+    }
   }
 
   return (
@@ -126,7 +160,7 @@ function ChatSession({
       className={
         compact
           ? "flex h-full min-h-0 flex-col gap-3"
-          : "flex h-[calc(100svh-5.5rem)] min-h-[30rem] flex-col gap-4 sm:h-[calc(100svh-6.5rem)] lg:h-[calc(100svh-7.5rem)]"
+          : "flex min-h-0 flex-1 flex-col gap-4"
       }
     >
       {!compact && (
@@ -160,6 +194,7 @@ function ChatSession({
                 const text = messageText(message)
                 if (!text) return null
                 const isUser = message.role === "user"
+                const richText = messageMetadataRichText(message.metadata)
                 return (
                   <div
                     key={message.id}
@@ -184,13 +219,18 @@ function ChatSession({
                     )}
                     <div
                       className={cn(
-                        "max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 whitespace-pre-wrap",
+                        "max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6",
                         isUser
-                          ? "rounded-br-md bg-primary text-primary-foreground"
+                          ? "rounded-br-md bg-primary/25 text-foreground"
                           : "rounded-bl-md bg-muted"
                       )}
                     >
-                      {text}
+                      <ResourceChatMessage
+                        content={richText ?? text}
+                        contentType={richText ? "json" : "markdown"}
+                        mentionItems={mentionItems}
+                        className={isUser ? "chat-tiptap-user" : undefined}
+                      />
                     </div>
                   </div>
                 )
@@ -213,7 +253,11 @@ function ChatSession({
         </div>
 
         <div className="shrink-0">
-          <form className="mx-auto max-w-3xl space-y-2" onSubmit={submit}>
+          <form
+            ref={formRef}
+            className="mx-auto max-w-3xl space-y-2"
+            onSubmit={submit}
+          >
             <div className="flex items-center gap-2">
               <Select
                 value={targetValue}
@@ -222,9 +266,7 @@ function ChatSession({
               >
                 <SelectTrigger className="h-8 w-auto max-w-48 gap-1.5 border-0 bg-muted/70 px-2.5 text-xs shadow-none">
                   <SelectValue>
-                    {selectedAgent?.name ??
-                      activeModel?.label ??
-                      activeModelId}
+                    {selectedAgent?.name ?? activeModel?.label ?? activeModelId}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent align="start" className="min-w-48">
@@ -260,24 +302,18 @@ function ChatSession({
               </Select>
             </div>
 
-            <div className="flex items-end gap-2 rounded-xl border bg-background p-2 shadow-xs focus-within:ring-3 focus-within:ring-ring/20">
-              <Textarea
-                value={input}
-                rows={1}
-                className="max-h-40 min-h-10 flex-1 resize-none border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0"
+            <ResourceChatComposer>
+              <ResourceChatEditor
+                ref={editorRef}
+                mentionItems={mentionItems}
                 placeholder={
                   activeModel?.available
-                    ? "Message the model…"
+                    ? "Message the model, or press '/' for commands…"
                     : "Configure OPENROUTER_API_KEY to chat"
                 }
                 disabled={!activeModel?.available || isChangingTarget}
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault()
-                    event.currentTarget.form?.requestSubmit()
-                  }
-                }}
+                onEmptyChange={setInputEmpty}
+                onSubmit={() => formRef.current?.requestSubmit()}
               />
               {isStreaming ? (
                 <Button
@@ -295,16 +331,16 @@ function ChatSession({
                   size="icon"
                   aria-label="Send message"
                   disabled={
-                    !input.trim() || !activeModel?.available || isChangingTarget
+                    inputEmpty || !activeModel?.available || isChangingTarget
                   }
                 >
                   <HugeiconsIcon icon={ArrowUp02Icon} strokeWidth={2} />
                 </Button>
               )}
-            </div>
-            {(targetError || error) && (
+            </ResourceChatComposer>
+            {(targetError || submitError || error) && (
               <p className="text-xs text-destructive" role="alert">
-                {targetError ?? error?.message}
+                {targetError ?? submitError ?? error?.message}
               </p>
             )}
           </form>
@@ -316,9 +352,13 @@ function ChatSession({
 
 export function ResourceContentAiChat({
   resource,
+  resources,
+  members,
   compact = false,
 }: {
   resource: Resource
+  resources: Resource[]
+  members: WorkspaceMember[]
   compact?: boolean
 }) {
   const [chat, chatState] = useQuery(queries.chats.byID({ id: resource.id }))
@@ -390,9 +430,7 @@ export function ResourceContentAiChat({
     return (
       <Skeleton
         className={
-          compact
-            ? "h-full min-h-64 rounded-xl"
-            : "h-[calc(100svh-7.5rem)] min-h-[30rem] rounded-xl"
+          compact ? "h-full min-h-64 rounded-xl" : "min-h-0 flex-1 rounded-xl"
         }
       />
     )
@@ -407,6 +445,8 @@ export function ResourceContentAiChat({
       key={resource.id}
       resource={resource}
       content={content}
+      resources={resources}
+      members={members}
       compact={compact}
     />
   )

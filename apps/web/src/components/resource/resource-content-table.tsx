@@ -743,7 +743,7 @@ export function ResourceContentTable({
 
   if (!tableRow && !queryError) {
     return (
-      <div className="flex h-[calc(100svh-5.5rem)] min-h-[34rem] flex-col gap-4 sm:h-[calc(100svh-6.5rem)] lg:h-[calc(100svh-7.5rem)]">
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
         <Skeleton className="h-14 w-72 shrink-0" />
         <Skeleton className="min-h-0 flex-1 w-full" />
       </div>
@@ -759,7 +759,7 @@ export function ResourceContentTable({
   }
 
   return (
-    <div className="flex h-[calc(100svh-5.5rem)] min-h-[34rem] flex-col gap-4 sm:h-[calc(100svh-6.5rem)] lg:h-[calc(100svh-7.5rem)]">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       <ResourcePageHeader
         resource={resource}
         className="shrink-0"

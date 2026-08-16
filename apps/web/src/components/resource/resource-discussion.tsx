@@ -27,9 +27,14 @@ import { ResourceKindIcon } from "./resource-kind-icon"
 export type DiscussionMode = "threads" | "ai"
 
 const AI_ABOUT_PREFIX = "about:"
+const AI_WORKSPACE_ABOUT_PREFIX = "about:workspace:"
 
 function aiAboutDescription(resourceId: string) {
   return `${AI_ABOUT_PREFIX}${resourceId}`
+}
+
+function aiWorkspaceAboutDescription(workspaceId: string) {
+  return `${AI_WORKSPACE_ABOUT_PREFIX}${workspaceId}`
 }
 
 function ThreadTab({
@@ -99,7 +104,7 @@ export function ResourceDiscussionButtonGroup({
   onModeChange,
   onAiChatIdChange,
 }: {
-  resource: Resource
+  resource?: Resource
   resources: Resource[]
   workspaceId: string
   open: boolean
@@ -110,8 +115,10 @@ export function ResourceDiscussionButtonGroup({
 }) {
   const zero = useZero()
   const [isCreatingAi, setIsCreatingAi] = useState(false)
+  const canUseThreads = Boolean(resource)
 
   function toggleThreads() {
+    if (!resource) return
     if (open && mode === "threads") {
       onOpenChange(false)
       return
@@ -121,9 +128,15 @@ export function ResourceDiscussionButtonGroup({
   }
 
   async function openAiChat() {
+    if (open && mode === "ai") {
+      onOpenChange(false)
+      return
+    }
     if (isCreatingAi) return
 
-    const about = aiAboutDescription(resource.id)
+    const about = resource
+      ? aiAboutDescription(resource.id)
+      : aiWorkspaceAboutDescription(workspaceId)
     const existing = resources.find(
       (item) => item.kind === "ai-chat" && item.description === about
     )
@@ -141,10 +154,13 @@ export function ResourceDiscussionButtonGroup({
         mutators.resources.create({
           id,
           workspaceId,
-          parentId:
-            resource.kind === "folder" ? resource.id : resource.parentId,
+          parentId: resource
+            ? resource.kind === "folder"
+              ? resource.id
+              : resource.parentId
+            : null,
           kind: "ai-chat",
-          name: `AI · ${resource.name}`,
+          name: resource ? `AI · ${resource.name}` : "AI chat",
           description: about,
           icon: null,
           bookmark: null,
@@ -166,17 +182,23 @@ export function ResourceDiscussionButtonGroup({
 
   return (
     <ButtonGroup>
-      <Button
-        type="button"
-        variant={open && mode === "threads" ? "default" : "secondary"}
-        size="icon"
-        aria-label="Threads"
-        title="Threads"
-        aria-pressed={open && mode === "threads"}
-        onClick={toggleThreads}
-      >
-        <HugeiconsIcon icon={Comment01Icon} className="size-4" strokeWidth={2} />
-      </Button>
+      {canUseThreads && (
+        <Button
+          type="button"
+          variant={open && mode === "threads" ? "default" : "secondary"}
+          size="icon"
+          aria-label="Threads"
+          title="Threads"
+          aria-pressed={open && mode === "threads"}
+          onClick={toggleThreads}
+        >
+          <HugeiconsIcon
+            icon={Comment01Icon}
+            className="size-4"
+            strokeWidth={2}
+          />
+        </Button>
+      )}
       <Button
         type="button"
         variant={open && mode === "ai" ? "default" : "secondary"}
@@ -200,9 +222,11 @@ export function ResourceDiscussionButtonGroup({
 function DiscussionAiPanel({
   aiChatId,
   resources,
+  members,
 }: {
   aiChatId: string
   resources: Resource[]
+  members: WorkspaceMember[]
 }) {
   const aiResource = useMemo(
     () => resources.find((item) => item.id === aiChatId),
@@ -237,7 +261,14 @@ function DiscussionAiPanel({
     )
   }
 
-  return <ResourceContentAiChat resource={resource} compact />
+  return (
+    <ResourceContentAiChat
+      resource={resource}
+      resources={resources}
+      members={members}
+      compact
+    />
+  )
 }
 
 export function ResourceDiscussionPanel({
@@ -248,7 +279,7 @@ export function ResourceDiscussionPanel({
   mode = "threads",
   aiChatId = null,
 }: {
-  resource: Resource
+  resource?: Resource
   resources: Resource[]
   members: WorkspaceMember[]
   workspaceId: string
@@ -258,7 +289,8 @@ export function ResourceDiscussionPanel({
 }) {
   const zero = useZero()
   const [threads = [], threadsState] = useQuery(
-    queries.humanChats.byTarget({ id: resource.id })
+    queries.humanChats.byTarget({ id: resource?.id ?? "__none__" }),
+    { enabled: Boolean(resource) && mode === "threads" }
   )
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
@@ -270,7 +302,7 @@ export function ResourceDiscussionPanel({
     : (threads.at(0)?.id ?? null)
 
   async function createThread() {
-    if (isCreating) return
+    if (!resource || isCreating) return
     const id = crypto.randomUUID()
     const name = `Thread ${threads.length + 1}`
     setSelectedThreadId(id)
@@ -308,12 +340,24 @@ export function ResourceDiscussionPanel({
     return (
       <div className="flex h-full min-h-0 flex-col bg-background p-3">
         {aiChatId ? (
-          <DiscussionAiPanel aiChatId={aiChatId} resources={resources} />
+          <DiscussionAiPanel
+            aiChatId={aiChatId}
+            resources={resources}
+            members={members}
+          />
         ) : (
           <div className="grid h-full min-h-64 place-items-center text-sm text-muted-foreground">
             Starting AI chat…
           </div>
         )}
+      </div>
+    )
+  }
+
+  if (!resource) {
+    return (
+      <div className="grid h-full min-h-64 place-items-center px-6 text-center text-sm text-muted-foreground">
+        Open a resource to use threads.
       </div>
     )
   }
@@ -325,7 +369,7 @@ export function ResourceDiscussionPanel({
         onValueChange={(value) => setSelectedThreadId(String(value))}
         className="min-h-0 flex-1 gap-0"
       >
-        <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1.5">
+        <div className="flex shrink-0 items-center gap-1 px-2 py-1.5">
           <TabsList className="no-scrollbar min-w-0 flex-1 justify-start overflow-x-auto">
             {threads.flatMap((thread) =>
               thread.resource
@@ -350,11 +394,15 @@ export function ResourceDiscussionPanel({
             disabled={isCreating}
             onClick={() => void createThread()}
           >
-            <HugeiconsIcon icon={Add01Icon} className="size-4" strokeWidth={2} />
+            <HugeiconsIcon
+              icon={Add01Icon}
+              className="size-4"
+              strokeWidth={2}
+            />
           </Button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-hidden p-3">
+        <div className="min-h-0 flex-1 overflow-hidden">
           {threads.length === 0 ? (
             <div className="grid h-full min-h-64 place-items-center px-6 text-center">
               <div>
@@ -396,6 +444,8 @@ export function ResourceDiscussionPanel({
                       <ChatConversation
                         chatId={thread.id}
                         resource={thread.resource as Resource}
+                        resources={resources}
+                        members={members}
                         compact
                       />
                     </TabsContent>,

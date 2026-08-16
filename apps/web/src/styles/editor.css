@@ -191,3 +191,76 @@
   display: inline;
   white-space: nowrap;
 }
+
+.tiptap.chat-tiptap {
+  max-width: none;
+  margin: 0;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.tiptap.chat-tiptap > * {
+  margin-inline: 0;
+  padding-inline: 0;
+}
+
+.tiptap.chat-tiptap > *:hover {
+  background: transparent;
+}
+
+.tiptap.chat-tiptap > * + * {
+  margin-top: 0.5rem;
+}
+
+.tiptap.chat-tiptap h1,
+.tiptap.chat-tiptap h2,
+.tiptap.chat-tiptap h3 {
+  margin-top: 0;
+  border-bottom: 0;
+  padding-bottom: 0;
+  font-size: 1em;
+  line-height: inherit;
+}
+
+.tiptap.chat-tiptap h1 {
+  font-size: 1.25em;
+}
+
+.tiptap.chat-tiptap h2 {
+  font-size: 1.125em;
+}
+
+.tiptap.chat-tiptap h3 {
+  font-size: 1em;
+}
+
+.tiptap.chat-tiptap li + li,
+.tiptap.chat-tiptap li > ul,
+.tiptap.chat-tiptap li > ol {
+  margin-top: 0.125rem;
+}
+
+.tiptap.chat-tiptap blockquote {
+  padding-left: 0.75rem;
+}
+
+.tiptap.chat-tiptap hr {
+  margin-block: 0.75rem;
+}
+
+.tiptap.chat-tiptap pre {
+  padding: 0.75rem;
+}
+
+.tiptap.chat-tiptap-composer p.is-editor-empty:first-child::before {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tiptap.chat-tiptap-user .workspace-mention {
+  background: color-mix(in oklch, currentColor 18%, transparent);
+  color: inherit;
+}

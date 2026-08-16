@@ -1,10 +1,15 @@
 import { useState } from "react"
+import { useNavigate } from "react-router-dom"
 import {
   Add01Icon,
+  BubbleChatIcon,
   Delete02Icon,
   Link01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { useQuery, useZero } from "@rocicorp/zero/react"
+import { mutators } from "@workspace/zero/mutators"
+import { queries } from "@workspace/zero/queries"
 import {
   Avatar,
   AvatarFallback,
@@ -12,7 +17,6 @@ import {
   AvatarGroupCount,
   AvatarImage,
 } from "@workspace/ui/components/avatar"
-import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import {
   Dialog,
@@ -27,7 +31,6 @@ import { Label } from "@workspace/ui/components/label"
 import {
   Popover,
   PopoverContent,
-  PopoverDescription,
   PopoverHeader,
   PopoverTitle,
   PopoverTrigger,
@@ -175,7 +178,7 @@ export function InviteMemberDialog({ workspaceId }: { workspaceId: string }) {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger render={<Button size="sm" />}>
+      <DialogTrigger render={<Button />}>
         <HugeiconsIcon icon={Add01Icon} strokeWidth={2} />
         Invite
       </DialogTrigger>
@@ -304,10 +307,69 @@ export function WorkspaceMembers({
   members: WorkspaceMember[]
   isLoading: boolean
 }) {
+  const navigate = useNavigate()
+  const zero = useZero()
   const { data: session } = authClient.useSession()
+  const [chats = []] = useQuery(
+    queries.humanChats.byWorkspace({
+      workspaceId: workspaceId ?? "__none__",
+    }),
+    { enabled: Boolean(session && workspaceId) }
+  )
+  const [openingUserId, setOpeningUserId] = useState<string | null>(null)
+  const [dmError, setDmError] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
   const isOwner = members.some(
     (member) => member.userId === session?.user.id && member.role === "owner"
   )
+  const dmByUserId = new Map<string, (typeof chats)[number]>()
+  for (const chat of chats) {
+    if (chat.type !== "dm") continue
+    const other = chat.participants.find(
+      (participant) => participant.userId !== session?.user.id
+    )
+    if (other) dmByUserId.set(other.userId, chat)
+  }
+
+  async function openDirectMessage(member: WorkspaceMember, now: number) {
+    if (!workspaceId || openingUserId) return
+    const existing = dmByUserId.get(member.userId)
+    if (existing) {
+      setOpen(false)
+      navigate(`/workspace/${workspaceId}/resource/${existing.id}`)
+      return
+    }
+
+    const id = crypto.randomUUID()
+    setOpeningUserId(member.userId)
+    setDmError(null)
+    try {
+      const result = zero.mutate(
+        mutators.humanChats.createDM({
+          id,
+          selfParticipantId: crypto.randomUUID(),
+          otherParticipantId: crypto.randomUUID(),
+          workspaceId,
+          otherUserId: member.userId,
+          now,
+        })
+      )
+      const serverResult = await result.server
+      if (serverResult.type === "error") {
+        throw new Error(serverResult.error.message)
+      }
+      setOpen(false)
+      navigate(`/workspace/${workspaceId}/resource/${id}`)
+    } catch (openError) {
+      setDmError(
+        openError instanceof Error
+          ? openError.message
+          : "Could not open direct message"
+      )
+    } finally {
+      setOpeningUserId(null)
+    }
+  }
 
   if (isLoading && members.length === 0) {
     return <Skeleton className="h-7 w-20 rounded-full" />
@@ -317,54 +379,48 @@ export function WorkspaceMembers({
   const hiddenCount = Math.max(0, members.length - visibleMembers.length)
 
   return (
-    <>
-      <Popover>
-        <PopoverTrigger
-          render={
-            <Button
-              variant="ghost"
-              className="h-8 gap-2 rounded-full px-1.5"
-              aria-label={`View ${members.length} workspace members`}
-            />
-          }
-        >
-          {members.length > 0 ? (
-            <AvatarGroup>
-              {visibleMembers.map((member) => (
-                <MemberAvatar member={member} key={member.id} />
-              ))}
-              {hiddenCount > 0 && (
-                <AvatarGroupCount className="size-6 text-xs">
-                  +{hiddenCount}
-                </AvatarGroupCount>
-              )}
-            </AvatarGroup>
-          ) : (
-            <HugeiconsIcon
-              icon={WORKSPACE_NAV_CONFIG.members.icon}
-              strokeWidth={2}
-            />
-          )}
-          <span className="hidden text-xs text-muted-foreground sm:inline">
-            {members.length}
-          </span>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-80 gap-3 p-3">
-          <PopoverHeader>
-            <div className="flex items-center justify-between gap-3">
-              <PopoverTitle>Workspace members</PopoverTitle>
-              {isOwner && workspaceId && (
-                <InviteMemberDialog workspaceId={workspaceId} />
-              )}
-            </div>
-            <PopoverDescription>
-              {members.length} {members.length === 1 ? "person" : "people"} in
-              this workspace
-            </PopoverDescription>
-          </PopoverHeader>
-          <ScrollArea className="max-h-72">
-            <div className="grid gap-1 pr-2">
-              {members.map((member) => (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <Button
+            variant="ghost"
+            className="h-8 rounded-full px-1.5"
+            aria-label="View workspace members"
+          />
+        }
+      >
+        {members.length > 0 ? (
+          <AvatarGroup>
+            {visibleMembers.map((member) => (
+              <MemberAvatar member={member} key={member.id} />
+            ))}
+            {hiddenCount > 0 && (
+              <AvatarGroupCount className="size-6 text-xs">
+                +{hiddenCount}
+              </AvatarGroupCount>
+            )}
+          </AvatarGroup>
+        ) : (
+          <HugeiconsIcon
+            icon={WORKSPACE_NAV_CONFIG.members.icon}
+            strokeWidth={2}
+          />
+        )}
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-auto gap-3 p-3">
+        <PopoverHeader>
+          <div className="flex items-center justify-between gap-3">
+            <PopoverTitle>Workspace members</PopoverTitle>
+            {isOwner && workspaceId && (
+              <InviteMemberDialog workspaceId={workspaceId} />
+            )}
+          </div>
+        </PopoverHeader>
+        <ScrollArea className="max-h-72">
+          <div className="grid gap-1 pr-2">
+            {members.map((member) => {
+              const isSelf = member.userId === session?.user.id
+              return (
                 <div
                   key={member.id}
                   className="flex items-center gap-3 rounded-lg p-2 hover:bg-muted/60"
@@ -378,20 +434,40 @@ export function WorkspaceMembers({
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">
                       {member.name || member.email}
+                      {isSelf ? " (you)" : ""}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">
                       {member.email}
                     </p>
                   </div>
-                  <Badge variant="secondary" className="capitalize">
-                    {member.role}
-                  </Badge>
+                  {!isSelf && (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      disabled={openingUserId === member.userId}
+                      aria-label={`Message ${member.name || member.email}`}
+                      onClick={(event) =>
+                        void openDirectMessage(
+                          member,
+                          Math.round(performance.timeOrigin + event.timeStamp)
+                        )
+                      }
+                    >
+                      <HugeiconsIcon icon={BubbleChatIcon} strokeWidth={2} />
+                    </Button>
+                  )}
                 </div>
-              ))}
-            </div>
-          </ScrollArea>
-        </PopoverContent>
-      </Popover>
-    </>
+              )
+            })}
+          </div>
+        </ScrollArea>
+        {dmError && (
+          <p className="text-xs text-destructive" role="alert">
+            {dmError}
+          </p>
+        )}
+      </PopoverContent>
+    </Popover>
   )
 }

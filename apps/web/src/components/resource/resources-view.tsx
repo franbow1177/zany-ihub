@@ -17,13 +17,10 @@ import { CSS } from "@dnd-kit/utilities"
 import {
   Add01Icon,
   ArrowDown01Icon,
-  ArrowUpRight01Icon,
-  Edit02Icon,
   Folder01Icon,
   FolderOpenIcon,
   FolderRootIcon,
   MoreHorizontalIcon,
-  MoveToIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useZero } from "@rocicorp/zero/react"
@@ -34,12 +31,7 @@ import { Card, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
 import {
@@ -54,8 +46,10 @@ import { cn } from "@workspace/ui/lib/utils"
 import { PageHeader } from "@/components/page-header"
 import type { Resource, ResourceKind, WorkspaceMember } from "@/lib/api"
 import { RESOURCE_KIND_CONFIG, RESOURCE_KINDS } from "@/lib/resource-kind"
+import { ResourceDropdown } from "./resource-dropdown"
 import { ResourceFormSheet } from "./resource-form-sheet"
 import { ResourceKindIcon } from "./resource-kind-icon"
+import { ResourcePageHeader } from "./resource-page-header"
 
 const ROOT = "resource-root"
 const folderDrop = (id: string) => `resource-folder:${id}`
@@ -106,102 +100,6 @@ function RootDrop({
   )
 }
 
-function ResourceMenu({
-  resource,
-  resources,
-  members,
-  workspaceId,
-  move,
-}: {
-  resource: Resource
-  resources: Resource[]
-  members: WorkspaceMember[]
-  workspaceId: string
-  move: (resource: Resource, parentId: string | null) => void
-}) {
-  const [editing, setEditing] = useState(false)
-  const blocked = idsBelow(resource.id, resources)
-  const folders = resources
-    .filter((item) => item.kind === "folder" && !blocked.has(item.id))
-    .sort((a, b) => a.name.localeCompare(b.name))
-
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={`Actions for ${resource.name}`}
-              className="relative z-20 opacity-0 transition-opacity group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => event.stopPropagation()}
-            />
-          }
-        >
-          <HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-44">
-          <DropdownMenuGroup>
-            <DropdownMenuItem
-              render={
-                <Link
-                  to={`/workspace/${workspaceId}/resource/${resource.id}`}
-                />
-              }
-            >
-              <HugeiconsIcon icon={ArrowUpRight01Icon} strokeWidth={2} />
-              Open
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setEditing(true)}>
-              <HugeiconsIcon icon={Edit02Icon} strokeWidth={2} />
-              Edit resource
-            </DropdownMenuItem>
-          </DropdownMenuGroup>
-          <DropdownMenuSeparator />
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <HugeiconsIcon icon={MoveToIcon} strokeWidth={2} />
-              Move to
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="min-w-44">
-              <DropdownMenuItem
-                disabled={resource.parentId === null}
-                onClick={() => move(resource, null)}
-              >
-                <HugeiconsIcon icon={FolderRootIcon} strokeWidth={2} />
-                Workspace root
-              </DropdownMenuItem>
-              {folders.length > 0 && <DropdownMenuSeparator />}
-              {folders.map((folder) => (
-                <DropdownMenuItem
-                  key={folder.id}
-                  disabled={resource.parentId === folder.id}
-                  onClick={() => move(resource, folder.id)}
-                >
-                  <ResourceKindIcon kind="folder" icon={folder.icon} />
-                  <span className="truncate">{folder.name}</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <ResourceFormSheet
-        workspaceId={workspaceId}
-        resources={resources}
-        members={members}
-        resource={resource}
-        trigger={null}
-        open={editing}
-        onOpenChange={setEditing}
-      />
-    </>
-  )
-}
-
 function CardFace({
   resource,
   overlay = false,
@@ -236,14 +134,12 @@ function ResourceCard({
   members,
   workspaceId,
   activeId,
-  move,
 }: {
   resource: Resource
   resources: Resource[]
   members: WorkspaceMember[]
   workspaceId: string
   activeId: string | null
-  move: (resource: Resource, parentId: string | null) => void
 }) {
   const {
     setNodeRef: setDragRef,
@@ -282,12 +178,24 @@ function ResourceCard({
           className="absolute inset-0 z-10 rounded-xl outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
         />
         <div className="absolute top-2 right-2 z-20">
-          <ResourceMenu
+          <ResourceDropdown
             resource={resource}
             resources={resources}
             members={members}
             workspaceId={workspaceId}
-            move={move}
+            align="end"
+            trigger={
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={`Actions for ${resource.name}`}
+                className="opacity-0 transition-opacity group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 data-popup-open:opacity-100"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
+              </Button>
+            }
           />
         </div>
       </div>
@@ -305,11 +213,13 @@ export function ResourcesView({
   members,
   workspaceId,
   parentId = null,
+  headerResource,
 }: {
   resources: Resource[]
   members: WorkspaceMember[]
   workspaceId: string
   parentId?: string | null
+  headerResource?: Resource
 }) {
   const zero = useZero()
   const navigate = useNavigate()
@@ -433,13 +343,14 @@ export function ResourcesView({
       onDragEnd={dragEnd}
     >
       <section className="space-y-6" aria-labelledby="resources-heading">
-        {parentId ? (
-          <div className="flex items-center justify-between gap-3">
-            <h2 id="resources-heading" className="text-lg font-semibold">
-              Contents
-            </h2>
-            {createActions}
-          </div>
+        {headerResource ? (
+          <ResourcePageHeader
+            resource={headerResource}
+            title={
+              <span id="resources-heading">{headerResource.name}</span>
+            }
+            actions={createActions}
+          />
         ) : (
           <PageHeader
             icon={<HugeiconsIcon icon={Folder01Icon} strokeWidth={2} />}
@@ -488,7 +399,6 @@ export function ResourcesView({
                 members={members}
                 workspaceId={workspaceId}
                 activeId={activeId}
-                move={move}
               />
             ))}
           </div>

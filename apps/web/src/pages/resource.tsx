@@ -113,7 +113,7 @@ export function ResourcePage() {
           <Skeleton className="h-80 w-full rounded-xl" />
         </div>
       ) : activeResource ? (
-        <div>
+        <div className="flex min-h-0 flex-1 flex-col">
           <ResourceContent
             resource={activeResource}
             resources={shell.resources}

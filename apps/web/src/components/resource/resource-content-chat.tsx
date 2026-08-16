@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { ArrowUp02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useQuery, useZero } from "@rocicorp/zero/react"
@@ -11,19 +11,33 @@ import {
 } from "@workspace/ui/components/avatar"
 import { Button } from "@workspace/ui/components/button"
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import { Textarea } from "@workspace/ui/components/textarea"
 
-import type { Resource } from "@/lib/api"
+import type { Resource, WorkspaceMember } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
+import { buildWorkspaceMentionItems } from "@/lib/workspace-mentions"
+import {
+  ResourceChatComposer,
+  ResourceChatEditor,
+  type ResourceChatEditorHandle,
+  ResourceChatMessage,
+} from "./resource-chat-rich-text"
+import {
+  serializeChatRichText,
+  storedChatRichText,
+} from "./resource-chat-rich-text-utils"
 import { ResourcePageHeader } from "./resource-page-header"
 
 export function ChatConversation({
   chatId,
   resource,
+  resources,
+  members,
   compact = false,
 }: {
   chatId: string
   resource: Resource
+  resources: Resource[]
+  members: WorkspaceMember[]
   compact?: boolean
 }) {
   const zero = useZero()
@@ -32,10 +46,16 @@ export function ChatConversation({
   const [messages = [], messagesState] = useQuery(
     queries.humanChats.messages({ chatId })
   )
-  const [input, setInput] = useState("")
+  const [inputEmpty, setInputEmpty] = useState(true)
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement | null>(null)
+  const formRef = useRef<HTMLFormElement | null>(null)
+  const editorRef = useRef<ResourceChatEditorHandle | null>(null)
+  const mentionItems = useMemo(
+    () => buildWorkspaceMentionItems(resources, members),
+    [resources, members]
+  )
   const orderedMessages = [...messages].reverse()
   const latestMessage = orderedMessages.at(-1)
 
@@ -63,10 +83,15 @@ export function ChatConversation({
 
   async function send(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const body = input.trim()
-    if (!body || isSending) return
+    const value = editorRef.current?.getValue()
+    if (!value?.text || isSending) return
+    const body = serializeChatRichText(value.content)
+    if (body.length > 20_000) {
+      setError("Message is too long")
+      return
+    }
 
-    setInput("")
+    editorRef.current?.clear()
     setIsSending(true)
     setError(null)
     try {
@@ -83,7 +108,7 @@ export function ChatConversation({
         throw new Error(serverResult.error.message)
       }
     } catch (sendError) {
-      setInput(body)
+      editorRef.current?.setContent(value.content)
       setError(
         sendError instanceof Error
           ? sendError.message
@@ -105,9 +130,7 @@ export function ChatConversation({
     return (
       <Skeleton
         className={
-          compact
-            ? "h-96 rounded-xl"
-            : "h-[calc(100svh-7.5rem)] min-h-[30rem] rounded-xl"
+          compact ? "h-96 rounded-xl" : "min-h-0 flex-1 rounded-xl"
         }
       />
     )
@@ -129,7 +152,7 @@ export function ChatConversation({
       className={
         compact
           ? "flex h-full min-h-0 flex-col gap-3"
-          : "flex h-[calc(100svh-5.5rem)] min-h-[30rem] flex-col gap-4 sm:h-[calc(100svh-6.5rem)] lg:h-[calc(100svh-7.5rem)]"
+          : "flex min-h-0 flex-1 flex-col gap-4"
       }
     >
       {!compact && (
@@ -172,15 +195,18 @@ export function ChatConversation({
                           }).format(new Date(message.createdAt ?? 0))}
                         </time>
                       </div>
-                      <p className="mt-1 text-sm break-words whitespace-pre-wrap">
+                      <div className="mt-1 text-sm">
                         {message.deletedAt ? (
                           <span className="text-muted-foreground italic">
                             Message deleted
                           </span>
                         ) : (
-                          message.body
+                          <ResourceChatMessage
+                            content={storedChatRichText(message.body)}
+                            mentionItems={mentionItems}
+                          />
                         )}
-                      </p>
+                      </div>
                     </div>
                   </article>
                 )
@@ -190,29 +216,26 @@ export function ChatConversation({
           )}
         </div>
 
-        <form className="shrink-0" onSubmit={send}>
-          <div className="mx-auto flex max-w-3xl items-end gap-2">
-            <Textarea
-              value={input}
-              rows={2}
-              className="min-h-10 resize-none"
-              placeholder={`Message ${title}`}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault()
-                  event.currentTarget.form?.requestSubmit()
-                }
-              }}
-            />
-            <Button
-              type="submit"
-              size="icon"
-              aria-label="Send message"
-              disabled={!input.trim() || isSending}
-            >
-              <HugeiconsIcon icon={ArrowUp02Icon} strokeWidth={2} />
-            </Button>
+        <form ref={formRef} className="shrink-0" onSubmit={send}>
+          <div className="mx-auto flex max-w-3xl">
+            <ResourceChatComposer>
+              <ResourceChatEditor
+                ref={editorRef}
+                mentionItems={mentionItems}
+                disabled={isSending}
+                onEmptyChange={setInputEmpty}
+                onSubmit={() => formRef.current?.requestSubmit()}
+                placeholder={`Message ${title}, or press '/' for commands…`}
+              />
+              <Button
+                type="submit"
+                size="icon"
+                aria-label="Send message"
+                disabled={inputEmpty || isSending}
+              >
+                <HugeiconsIcon icon={ArrowUp02Icon} strokeWidth={2} />
+              </Button>
+            </ResourceChatComposer>
           </div>
           {(error || queryError) && (
             <p className="mx-auto mt-2 max-w-3xl text-xs text-destructive">
@@ -225,6 +248,21 @@ export function ChatConversation({
   )
 }
 
-export function ResourceContentChat({ resource }: { resource: Resource }) {
-  return <ChatConversation chatId={resource.id} resource={resource} />
+export function ResourceContentChat({
+  resource,
+  resources,
+  members,
+}: {
+  resource: Resource
+  resources: Resource[]
+  members: WorkspaceMember[]
+}) {
+  return (
+    <ChatConversation
+      chatId={resource.id}
+      resource={resource}
+      resources={resources}
+      members={members}
+    />
+  )
 }

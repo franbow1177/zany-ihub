@@ -63,7 +63,7 @@ export function ResourceContent({
       return (
         <Suspense
           fallback={
-            <div className="h-[calc(100svh-5.5rem)] min-h-[34rem] animate-pulse rounded-xl bg-muted sm:h-[calc(100svh-6.5rem)] lg:h-[calc(100svh-7.5rem)]" />
+            <div className="min-h-0 flex-1 animate-pulse rounded-xl bg-muted" />
           }
         >
           <ResourceContentWhiteboard key={resource.id} resource={resource} />
@@ -83,8 +83,22 @@ export function ResourceContent({
     case "agent":
       return <ResourceContentAgent key={resource.id} resource={resource} />
     case "ai-chat":
-      return <ResourceContentAiChat key={resource.id} resource={resource} />
+      return (
+        <ResourceContentAiChat
+          key={resource.id}
+          resource={resource}
+          resources={resources}
+          members={members}
+        />
+      )
     case "chat":
-      return <ResourceContentChat key={resource.id} resource={resource} />
+      return (
+        <ResourceContentChat
+          key={resource.id}
+          resource={resource}
+          resources={resources}
+          members={members}
+        />
+      )
   }
 }

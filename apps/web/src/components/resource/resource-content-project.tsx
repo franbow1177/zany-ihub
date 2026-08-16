@@ -33,19 +33,18 @@ import { queries } from "@workspace/zero/queries"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card"
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
 import { Input } from "@workspace/ui/components/input"
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@workspace/ui/components/input-group"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
 
@@ -120,19 +119,23 @@ function SortableTaskCard({
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        "rounded-lg border bg-background p-3 shadow-xs",
+        "rounded-lg border bg-background px-1.5",
         isDragging && "opacity-35"
       )}
     >
       <div className="flex items-center gap-1.5">
         <button
           type="button"
-          className="-ml-1 inline-flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:cursor-grabbing"
+          className="-ml-1 inline-flex size-6 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:cursor-grabbing"
           aria-label={`Drag ${task.title}`}
           {...attributes}
           {...listeners}
         >
-          <HugeiconsIcon icon={DragDropVerticalIcon} strokeWidth={2} />
+          <HugeiconsIcon
+            icon={DragDropVerticalIcon}
+            className="size-4"
+            strokeWidth={2}
+          />
         </button>
         <Input
           key={`${task.id}:${task.title}`}
@@ -153,17 +156,21 @@ function SortableTaskCard({
         />
         <Button
           type="button"
-          size="icon"
+          size="icon-sm"
           variant="ghost"
           className="shrink-0"
           aria-label={`Delete ${task.title}`}
           onClick={() => onDelete(task.id)}
         >
-          <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
+          <HugeiconsIcon
+            icon={Delete02Icon}
+            className="size-4"
+            strokeWidth={2}
+          />
         </Button>
       </div>
       {task.description && (
-        <p className="mt-2 line-clamp-3 pl-7 text-xs text-muted-foreground">
+        <p className="mt-2 line-clamp-3 pl-6 text-xs text-muted-foreground">
           {task.description}
         </p>
       )}
@@ -195,32 +202,33 @@ function TaskColumn({
   const { setNodeRef, isOver } = useDroppable({ id: status })
 
   return (
-    <Card
+    <div
       ref={setNodeRef}
       className={cn(
-        "min-h-0 gap-0 overflow-hidden py-0 transition-colors",
-        isOver && "ring-2 ring-primary/40"
+        "group/column flex min-h-0 min-w-[17rem] flex-1 flex-col transition-colors",
+        isOver && "bg-muted/40"
       )}
     >
-      <CardHeader className="flex shrink-0 flex-row items-center justify-between border-b py-3">
+      <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-3">
         <div className="flex items-center gap-2">
           <HugeiconsIcon
             icon={RESOURCE_KIND_CONFIG.project.icon}
+            className="size-4"
             strokeWidth={2}
           />
-          <CardTitle>{label}</CardTitle>
+          <h2 className="text-sm font-semibold">{label}</h2>
         </div>
         <Badge variant="outline">{tasks.length}</Badge>
-      </CardHeader>
+      </div>
 
-      <CardContent className="min-h-0 flex-1 overflow-y-auto bg-muted/20 p-3">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
         <SortableContext
           items={tasks.map((task) => task.id)}
           strategy={verticalListSortingStrategy}
         >
-          <div className="min-h-full space-y-3">
+          <div className="min-h-full space-y-2">
             {tasks.length === 0 ? (
-              <p className="rounded-lg border border-dashed p-5 text-center text-sm text-muted-foreground">
+              <p className="border border-dashed p-3 text-center text-sm text-muted-foreground">
                 Drop a task here
               </p>
             ) : (
@@ -235,29 +243,40 @@ function TaskColumn({
             )}
           </div>
         </SortableContext>
-      </CardContent>
+      </div>
 
-      <CardFooter className="shrink-0 bg-background p-3">
-        <form className="flex w-full gap-2" onSubmit={onCreateTask}>
-          <Input
+      <form
+        className={cn(
+          "shrink-0 px-3 py-3 opacity-0 transition-opacity group-focus-within/column:opacity-100 group-hover/column:opacity-100",
+          (newTask.trim() || isCreating) && "opacity-100"
+        )}
+        onSubmit={onCreateTask}
+      >
+        <InputGroup>
+          <InputGroupInput
             value={newTask}
-            className="min-w-0"
             placeholder="Add a task"
             aria-label={`New ${label} task title`}
             onChange={(event) => onNewTaskChange(event.target.value)}
           />
-          <Button
-            type="submit"
-            size="icon"
-            className="shrink-0"
-            disabled={isCreating || !newTask.trim()}
-            aria-label={`Add task to ${label}`}
-          >
-            <HugeiconsIcon icon={Add01Icon} strokeWidth={2} />
-          </Button>
-        </form>
-      </CardFooter>
-    </Card>
+          <InputGroupAddon align="inline-end">
+            <InputGroupButton
+              type="submit"
+              size="icon-xs"
+              variant="ghost"
+              disabled={isCreating || !newTask.trim()}
+              aria-label={`Add task to ${label}`}
+            >
+              <HugeiconsIcon
+                icon={Add01Icon}
+                className="size-4"
+                strokeWidth={2}
+              />
+            </InputGroupButton>
+          </InputGroupAddon>
+        </InputGroup>
+      </form>
+    </div>
   )
 }
 
@@ -576,11 +595,11 @@ export function ResourceContentProject({ resource }: { resource: Resource }) {
 
   if (!project && !error && !queryError) {
     return (
-      <div className="flex h-[calc(100svh-5.5rem)] flex-col gap-4 sm:h-[calc(100svh-6.5rem)] lg:h-[calc(100svh-7.5rem)]">
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
         <Skeleton className="h-14 w-full shrink-0" />
-        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-3">
+        <div className="flex min-h-0 flex-1 divide-x border">
           {TASK_COLUMNS.map((column) => (
-            <Skeleton key={column.status} className="h-full rounded-xl" />
+            <Skeleton key={column.status} className="h-full flex-1 rounded-none" />
           ))}
         </div>
       </div>
@@ -588,7 +607,7 @@ export function ResourceContentProject({ resource }: { resource: Resource }) {
   }
 
   return (
-    <div className="flex h-[calc(100svh-5.5rem)] min-h-[28rem] flex-col gap-4 sm:h-[calc(100svh-6.5rem)] lg:h-[calc(100svh-7.5rem)]">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       <ResourcePageHeader
         resource={resource}
         className="shrink-0"
@@ -640,7 +659,7 @@ export function ResourceContentProject({ resource }: { resource: Resource }) {
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className="grid min-h-0 flex-1 auto-cols-[minmax(17rem,1fr)] grid-flow-col gap-4 overflow-x-auto pb-1 lg:auto-cols-auto lg:grid-flow-row lg:grid-cols-3 lg:overflow-x-visible">
+        <div className="flex min-h-0 flex-1 divide-x overflow-x-auto border">
           {TASK_COLUMNS.map((column) => {
             const columnTasks = tasks.filter(
               (task) => task.status === column.status
@@ -670,7 +689,7 @@ export function ResourceContentProject({ resource }: { resource: Resource }) {
         </div>
         <DragOverlay>
           {activeTask ? (
-            <div className="rounded-lg border bg-background px-4 py-3 font-medium shadow-lg">
+            <div className="border bg-background px-4 py-3 font-medium shadow-lg">
               {activeTask.title}
             </div>
           ) : null}
