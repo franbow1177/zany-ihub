@@ -1,3 +1,4 @@
+import { useMemo } from "react"
 import {
   CodeIcon,
   Heading02Icon,
@@ -12,13 +13,31 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Placeholder } from "@tiptap/extensions"
-import { EditorContent, useEditor, useEditorState } from "@tiptap/react"
+import Mention from "@tiptap/extension-mention"
+import {
+  EditorContent,
+  ReactNodeViewRenderer,
+  ReactRenderer,
+  useEditor,
+  useEditorState,
+} from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
+import { exitSuggestion } from "@tiptap/suggestion"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent } from "@workspace/ui/components/card"
 
-import type { Resource } from "@/lib/api"
+import type { Resource, WorkspaceMember } from "@/lib/api"
+import {
+  buildWorkspaceMentionItems,
+  filterWorkspaceMentionItems,
+} from "@/lib/workspace-mentions"
+import {
+  ResourceDocMentionList,
+  type ResourceDocMentionListHandle,
+  type ResourceDocMentionListProps,
+} from "./resource-doc-mention-list"
+import { ResourceDocMention } from "./resource-doc-mention"
 
 function storageKey(resourceId: string) {
   return `zany-ihub:document:${resourceId}`
@@ -28,27 +47,93 @@ function loadDocument(resourceId: string) {
   return window.localStorage.getItem(storageKey(resourceId)) ?? ""
 }
 
-export function ResourceContentDoc({ resource }: { resource: Resource }) {
-  const editor = useEditor({
-    extensions: [
-      StarterKit,
-      Placeholder.configure({
-        placeholder: "Start writing…",
-      }),
-    ],
-    content: loadDocument(resource.id),
-    editorProps: {
-      attributes: {
-        class: "tiptap min-h-[32rem] px-5 py-6 sm:px-8 sm:py-8",
+export function ResourceContentDoc({
+  resource,
+  resources,
+  members,
+}: {
+  resource: Resource
+  resources: Resource[]
+  members: WorkspaceMember[]
+}) {
+  const mentionItems = useMemo(
+    () => buildWorkspaceMentionItems(resources, members),
+    [resources, members]
+  )
+
+  const editor = useEditor(
+    {
+      extensions: [
+        StarterKit,
+        Placeholder.configure({
+          placeholder: "Start writing…",
+        }),
+        Mention.extend({
+          addNodeView() {
+            return ReactNodeViewRenderer(
+              (props) => (
+                <ResourceDocMention {...props} mentionItems={mentionItems} />
+              ),
+              { as: "span" }
+            )
+          },
+        }).configure({
+          HTMLAttributes: { class: "workspace-mention" },
+          deleteTriggerWithBackspace: true,
+          renderText: ({ node }) => `@${node.attrs.label ?? node.attrs.id}`,
+          suggestion: {
+            char: "@",
+            items: ({ query }) =>
+              filterWorkspaceMentionItems(mentionItems, query),
+            render: () => {
+              let component: ReactRenderer<
+                ResourceDocMentionListHandle,
+                ResourceDocMentionListProps
+              > | null = null
+              let unmount: (() => void) | null = null
+
+              return {
+                onStart: (props) => {
+                  component = new ReactRenderer(ResourceDocMentionList, {
+                    props,
+                    editor: props.editor,
+                  })
+                  unmount = props.mount(component.element)
+                },
+                onUpdate: (props) => component?.updateProps(props),
+                onKeyDown: (props) => {
+                  if (props.event.key === "Escape") {
+                    exitSuggestion(props.view)
+                    return true
+                  }
+                  return component?.ref?.onKeyDown(props) ?? false
+                },
+                onExit: () => {
+                  unmount?.()
+                  component?.destroy()
+                  component = null
+                  unmount = null
+                },
+              }
+            },
+          },
+        }),
+      ],
+      content: loadDocument(resource.id),
+      editorProps: {
+        attributes: {
+          class: "tiptap min-h-[32rem] px-5 py-6 sm:px-8 sm:py-8",
+        },
+      },
+      onUpdate: ({ editor: currentEditor }) => {
+        window.localStorage.setItem(
+          storageKey(resource.id),
+          currentEditor.getHTML()
+        )
       },
     },
-    onUpdate: ({ editor: currentEditor }) => {
-      window.localStorage.setItem(
-        storageKey(resource.id),
-        currentEditor.getHTML()
-      )
-    },
-  })
+    [mentionItems, resource.id]
+  )
 
   const editorState = useEditorState({
     editor,

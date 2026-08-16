@@ -29,6 +29,20 @@
       "when": 1786789550870,
       "tag": "0003_sudden_yellow_claw",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786790557420,
+      "tag": "0004_pale_fat_cobra",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786791479601,
+      "tag": "0005_nice_randall_flagg",
+      "breakpoints": true
     }
   ]
 }

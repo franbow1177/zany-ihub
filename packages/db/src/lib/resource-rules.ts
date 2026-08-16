@@ -6,6 +6,8 @@ export const RESOURCE_KINDS = [
   "whiteboard",
   "project",
   "bookmark",
+  "agent",
+  "ai-chat",
 ] as const
 export type ResourceKind = (typeof RESOURCE_KINDS)[number]
 

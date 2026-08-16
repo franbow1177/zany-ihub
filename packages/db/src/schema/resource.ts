@@ -16,6 +16,8 @@ export const resourceKindEnum = pgEnum("resource_kind", [
   "whiteboard",
   "project",
   "bookmark",
+  "agent",
+  "ai-chat",
 ])
 
 export const resource = pgTable("resource", {

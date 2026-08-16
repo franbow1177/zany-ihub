@@ -69,6 +69,8 @@ async function createResource(
       | "whiteboard"
       | "project"
       | "bookmark"
+      | "agent"
+      | "ai-chat"
     parentId?: string
     description?: string | null
     icon?: string | null
@@ -492,6 +494,65 @@ describe("resource routes", () => {
     expect(await projectResponse.json()).toMatchObject({
       project: { id: resource.id, status: "active" },
       tasks: [{ id: task.id, status: "done" }],
+    })
+  })
+
+  test("creates agents and selects them from persistent AI chats", async () => {
+    const workspace = await createWorkspace("AI Resources")
+    const agent = await createResource(workspace.id, {
+      name: "Product coach",
+      kind: "agent",
+    })
+    const chat = await createResource(workspace.id, {
+      name: "Planning chat",
+      kind: "ai-chat",
+    })
+
+    const updateAgentResponse = await request(
+      `/resources/${agent.id}/agent`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          model: "anthropic/claude-haiku-4.5",
+          persona: "A pragmatic product coach",
+          systemPrompt: "Ask one clarifying question at a time.",
+        }),
+      },
+      ownerHeaders
+    )
+    expect(updateAgentResponse.status).toBe(200)
+    expect(await updateAgentResponse.json()).toMatchObject({
+      id: agent.id,
+      model: "anthropic/claude-haiku-4.5",
+      persona: "A pragmatic product coach",
+    })
+
+    const updateChatResponse = await request(
+      `/resources/${chat.id}/ai-chat`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          target: { type: "agent", agentId: agent.id },
+        }),
+      },
+      ownerHeaders
+    )
+    expect(updateChatResponse.status).toBe(200)
+    expect(await updateChatResponse.json()).toMatchObject({
+      id: chat.id,
+      agentId: agent.id,
+      messages: [],
+    })
+
+    const chatResponse = await request(
+      `/resources/${chat.id}/ai-chat`,
+      {},
+      ownerHeaders
+    )
+    expect(chatResponse.status).toBe(200)
+    expect(await chatResponse.json()).toMatchObject({
+      chat: { id: chat.id, agentId: agent.id, messages: [] },
+      agents: [{ id: agent.id, name: "Product coach" }],
     })
   })
 

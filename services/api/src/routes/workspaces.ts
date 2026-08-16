@@ -94,59 +94,6 @@ export const workspaceRoutes = new Elysia({ name: "workspace-routes" })
     if (!workspace) return notFound(set)
     return workspace
   })
-  .post(
-    "/workspaces/:id/members",
-    async ({ body, params, request, set }) => {
-      const sessionUser = await getSessionUser(request)
-      if (!sessionUser) return unauthorized(set)
-
-      const membership = await findMembership(params.id, sessionUser.id)
-      if (!membership) return notFound(set)
-      if (membership.role !== "owner") {
-        set.status = 403
-        return { error: "Only workspace owners can add members" }
-      }
-
-      const target = await db.query.user.findFirst({
-        where: (row, { eq }) => eq(row.email, body.email),
-      })
-      if (!target) {
-        set.status = 404
-        return { error: "User not found" }
-      }
-
-      const existingMembership = await findMembership(params.id, target.id)
-      if (existingMembership) {
-        set.status = 409
-        return { error: "User is already a workspace member" }
-      }
-
-      const [created] = await db
-        .insert(schema.workspaceMember)
-        .values({
-          id: newId(),
-          workspaceId: params.id,
-          userId: target.id,
-          role: body.role ?? "member",
-        })
-        .returning()
-
-      if (!created) throw new Error("Workspace member insert returned no row")
-
-      return {
-        ...created,
-        name: target.name,
-        email: target.email,
-        image: target.image,
-      }
-    },
-    {
-      body: t.Object({
-        email: t.String({ format: "email" }),
-        role: t.Optional(t.Literal("member")),
-      }),
-    }
-  )
   .get("/workspaces/:id/members", async ({ params, request, set }) => {
     const sessionUser = await getSessionUser(request)
     if (!sessionUser) return unauthorized(set)

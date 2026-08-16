@@ -1,6 +1,8 @@
 import { useEffect, useMemo } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import {
+  AiChat02Icon,
+  AiUserIcon,
   Bookmark01Icon,
   File01Icon,
   Folder01Icon,
@@ -52,6 +54,12 @@ const KIND_CONFIG: Record<
     label: "Bookmarks",
     singular: "Bookmark",
     icon: Bookmark01Icon,
+  },
+  agent: { label: "Agents", singular: "Agent", icon: AiUserIcon },
+  "ai-chat": {
+    label: "AI chats",
+    singular: "AI chat",
+    icon: AiChat02Icon,
   },
 }
 

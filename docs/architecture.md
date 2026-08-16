@@ -48,22 +48,25 @@ Client: `createAuthClient` in `apps/web/src/lib/auth-client.ts` (grep `authClien
 
 ## Domain data
 
-Canonical shapes: `packages/db/src/schema/` (grep table exports `workspace`, `workspaceMember`, `resource`, `resourceFile`).
+Canonical shapes: `packages/db/src/schema/` (grep table exports `workspace`, `workspaceMember`, `workspaceInvitation`, `resource`, `resourceFile`).
 
 ### Invariants
 
 1. Creating a workspace inserts the creator as `owner` in the **same transaction**.
 2. Access to a workspace or its resources requires a `workspace_member` row.
-3. Only `owner` may add members; invite endpoint must not create additional `owner`s in v1.
-4. `resource.parentId`, when set, must reference a **folder** in the **same** workspace.
-5. Deleting a folder that still has children is rejected (no cascade delete of children).
-6. Moving a folder under its own descendant is rejected (cycle prevention).
-7. `kind === "file"` implies a 1:1 `resource_file` row with the **same id**; bytes live in object storage keyed under the workspace/resource id (see `fileStorageKey()` in `services/api/src/lib/s3.ts`, grep `fileStorageKey` if renamed).
-8. Content-bearing `whiteboard`, `project`, and `bookmark` resources have a 1:1 extension row with the **same id**, inserted in the resource-creation transaction.
-9. `description` and optional custom `icon` are shared resource metadata. Kind extension tables must not duplicate those fields.
-10. Whiteboard scene JSON uses optimistic `revision` checks. Its binary assets live in object storage and are indexed by Excalidraw file ID in `resource_whiteboard_asset`.
-11. Project tasks belong to `resource_project` and cascade with it; tasks are not resource-tree nodes.
-12. Bookmark resource targets must be in the same workspace. External bookmark targets are absolute HTTP(S) URLs. Deleted internal targets leave a recoverable bookmark with a missing target.
+3. Only `owner` may create, renew, or revoke workspace invitations; invitations always produce `member`, never `owner`.
+4. A pending invitation grants no access. Acceptance requires a signed-in Google account whose normalized email matches the invitation, and creates membership in the invitation-consumption transaction.
+5. Invitation tokens are random, expiring, single-purpose credentials. Only their SHA-256 hashes are persisted, and renewal invalidates the previous token.
+6. `resource.parentId`, when set, must reference a **folder** in the **same** workspace.
+7. Deleting a folder that still has children is rejected (no cascade delete of children).
+8. Moving a folder under its own descendant is rejected (cycle prevention).
+9. `kind === "file"` implies a 1:1 `resource_file` row with the **same id**; bytes live in object storage keyed under the workspace/resource id (see `fileStorageKey()` in `services/api/src/lib/s3.ts`, grep `fileStorageKey` if renamed).
+10. Content-bearing `whiteboard`, `project`, `bookmark`, `agent`, and `ai-chat` resources have a 1:1 extension row with the **same id**, inserted in the resource-creation transaction.
+11. `description` and optional custom `icon` are shared resource metadata. Kind extension tables must not duplicate those fields.
+12. Whiteboard scene JSON uses optimistic `revision` checks. Its binary assets live in object storage and are indexed by Excalidraw file ID in `resource_whiteboard_asset`.
+13. Project tasks belong to `resource_project` and cascade with it; tasks are not resource-tree nodes.
+14. Bookmark resource targets must be in the same workspace. External bookmark targets are absolute HTTP(S) URLs. Deleted internal targets leave a recoverable bookmark with a missing target.
+15. AI chats persist AI SDK UI-message JSON. An agent selected by a chat must belong to the same workspace. AI SDK calls use OpenRouter's server-side `OPENROUTER_API_KEY`; provider credentials never reach the browser.
 
 ### Object storage
 

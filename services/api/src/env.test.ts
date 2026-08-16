@@ -31,6 +31,7 @@ describe("server environment", () => {
       S3_SECRET_ACCESS_KEY: "minioadmin",
       S3_BUCKET: "zany-ihub",
       S3_REGION: "us-east-1",
+      OPENROUTER_API_KEY: undefined,
     })
   })
 })

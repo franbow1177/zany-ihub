@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom"
 
 import { HomePage } from "@/pages/home"
+import { InvitePage } from "@/pages/invite"
 import { ResourcePage } from "@/pages/resource"
 import { WorkspacePage } from "@/pages/workspace"
 
@@ -9,6 +10,7 @@ export function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<HomePage />} />
+        <Route path="/invite/:token" element={<InvitePage />} />
         <Route path="/workspace/:workspaceId" element={<WorkspacePage />} />
         <Route
           path="/workspace/:workspaceId/resource/:resourceId"

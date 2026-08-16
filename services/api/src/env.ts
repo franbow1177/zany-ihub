@@ -25,6 +25,7 @@ export function readServerEnv(environment: Environment) {
       environment.S3_SECRET_ACCESS_KEY?.trim() || "minioadmin",
     S3_BUCKET: environment.S3_BUCKET?.trim() || "zany-ihub",
     S3_REGION: environment.S3_REGION?.trim() || "us-east-1",
+    OPENROUTER_API_KEY: environment.OPENROUTER_API_KEY?.trim() || undefined,
   }
 }
 

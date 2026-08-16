@@ -1,5 +1,7 @@
 export * from "./auth"
 export * from "./resource"
+export * from "./resource-agent"
+export * from "./resource-ai-chat"
 export * from "./resource-bookmark"
 export * from "./resource-file"
 export * from "./resource-project"

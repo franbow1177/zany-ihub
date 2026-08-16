@@ -11,6 +11,8 @@ describe("resource rules", () => {
       "whiteboard",
       "project",
       "bookmark",
+      "agent",
+      "ai-chat",
     ])
   })
 

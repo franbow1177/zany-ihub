@@ -1,6 +1,8 @@
 import { useMemo, useState, type ReactElement } from "react"
 import {
   Add01Icon,
+  AiChat02Icon,
+  AiUserIcon,
   Bookmark01Icon,
   CubeIcon,
   Delete02Icon,
@@ -123,6 +125,18 @@ const KIND_CONFIG: Record<
     plural: "Bookmarks",
     icon: Bookmark01Icon,
     description: "A link to another resource or an external website.",
+  },
+  agent: {
+    label: "Agent",
+    plural: "Agents",
+    icon: AiUserIcon,
+    description: "A reusable model, persona, and system prompt.",
+  },
+  "ai-chat": {
+    label: "AI chat",
+    plural: "AI chats",
+    icon: AiChat02Icon,
+    description: "A persistent conversation with a model or agent.",
   },
 }
 
@@ -292,6 +306,8 @@ function KindSpecificFields({
       "The whiteboard opens as a blank canvas and saves automatically.",
     project: "Project status and tasks are managed from the project view.",
     bookmark: "The bookmark target is managed from the bookmark view.",
+    agent: "Model, persona, and instructions are managed from the agent view.",
+    "ai-chat": "Model or agent selection is managed from the chat composer.",
     file: "File uploads are managed above.",
   }[kind]
 

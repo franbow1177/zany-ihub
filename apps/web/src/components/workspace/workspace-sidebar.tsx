@@ -1,6 +1,8 @@
 import { useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import {
+  AiChat02Icon,
+  AiUserIcon,
   Bookmark01Icon,
   ChevronRightIcon,
   Clock01Icon,
@@ -56,6 +58,8 @@ const KIND_CONFIG: Record<
   whiteboard: { label: "Whiteboards", icon: WhiteboardIcon },
   project: { label: "Projects", icon: Task01Icon },
   bookmark: { label: "Bookmarks", icon: Bookmark01Icon },
+  agent: { label: "Agents", icon: AiUserIcon },
+  "ai-chat": { label: "AI chats", icon: AiChat02Icon },
 }
 
 function ResourceSubmenu({

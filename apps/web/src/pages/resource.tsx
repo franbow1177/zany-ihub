@@ -101,6 +101,7 @@ export function ResourcePage() {
             resource={activeResource}
             resources={shell.resources}
             workspaceId={workspaceId}
+            members={shell.members}
           />
         </div>
       ) : null}

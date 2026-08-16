@@ -1,6 +1,8 @@
 import { lazy, Suspense } from "react"
 
-import type { Resource } from "@/lib/api"
+import type { Resource, WorkspaceMember } from "@/lib/api"
+import { ResourceContentAgent } from "./resource-content-agent"
+import { ResourceContentAiChat } from "./resource-content-ai-chat"
 import { ResourceContentBookmark } from "./resource-content-bookmark"
 import { ResourceContentDoc } from "./resource-content-doc"
 import { ResourceContentFile } from "./resource-content-file"
@@ -18,10 +20,12 @@ export function ResourceContent({
   resource,
   resources,
   workspaceId,
+  members,
 }: {
   resource: Resource
   resources: Resource[]
   workspaceId: string
+  members: WorkspaceMember[]
 }) {
   switch (resource.kind) {
     case "folder":
@@ -36,9 +40,23 @@ export function ResourceContent({
     case "file":
       return <ResourceContentFile key={resource.id} resource={resource} />
     case "doc":
-      return <ResourceContentDoc key={resource.id} resource={resource} />
+      return (
+        <ResourceContentDoc
+          key={resource.id}
+          resource={resource}
+          resources={resources}
+          members={members}
+        />
+      )
     case "table":
-      return <ResourceContentTable key={resource.id} resource={resource} />
+      return (
+        <ResourceContentTable
+          key={resource.id}
+          resource={resource}
+          resources={resources}
+          members={members}
+        />
+      )
     case "whiteboard":
       return (
         <Suspense
@@ -60,5 +78,9 @@ export function ResourceContent({
           workspaceId={workspaceId}
         />
       )
+    case "agent":
+      return <ResourceContentAgent key={resource.id} resource={resource} />
+    case "ai-chat":
+      return <ResourceContentAiChat key={resource.id} resource={resource} />
   }
 }

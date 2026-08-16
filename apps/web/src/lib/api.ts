@@ -1,3 +1,5 @@
+import type { UIMessage } from "ai"
+
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000"
 
 export type Workspace = {
@@ -17,6 +19,31 @@ export type WorkspaceMember = {
   image: string | null
 }
 
+export type WorkspaceInvitationStatus =
+  | "pending"
+  | "accepted"
+  | "revoked"
+  | "expired"
+
+export type WorkspaceInvitation = {
+  id: string
+  workspaceId: string
+  email: string
+  status: WorkspaceInvitationStatus
+  expiresAt: string
+  createdAt: string
+  updatedAt: string
+  inviteUrl?: string
+}
+
+export type InvitationPreview = {
+  workspaceName: string
+  inviterName: string
+  invitedEmail: string
+  status: WorkspaceInvitationStatus
+  expiresAt: string
+}
+
 export type ResourceKind =
   | "folder"
   | "file"
@@ -25,6 +52,8 @@ export type ResourceKind =
   | "whiteboard"
   | "project"
   | "bookmark"
+  | "agent"
+  | "ai-chat"
 
 export type ResourceFileMeta = {
   mimeType: string | null
@@ -105,6 +134,52 @@ export type BookmarkTarget =
 export type BookmarkContent = {
   target: BookmarkTarget | null
   updatedAt: string
+}
+
+export type AiModelOption = {
+  id: string
+  provider: string
+  label: string
+  tier: "free" | "budget" | "premium"
+  pricing: string
+  available: boolean
+}
+
+export type AgentDetails = {
+  id: string
+  model: string
+  persona: string | null
+  systemPrompt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type AgentContent = {
+  agent: AgentDetails
+  models: AiModelOption[]
+}
+
+export type AiChatAgentOption = {
+  id: string
+  name: string
+  icon: string | null
+  description: string | null
+  model: string
+}
+
+export type AiChatDetails = {
+  id: string
+  model: string
+  agentId: string | null
+  messages: UIMessage[]
+  createdAt: string
+  updatedAt: string
+}
+
+export type AiChatContent = {
+  chat: AiChatDetails
+  models: AiModelOption[]
+  agents: AiChatAgentOption[]
 }
 
 export async function apiFetch<T>(

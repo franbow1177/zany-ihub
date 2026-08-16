@@ -1,4 +1,6 @@
 import {
+  AiChat02Icon,
+  AiUserIcon,
   Bookmark01Icon,
   File01Icon,
   Folder01Icon,
@@ -22,4 +24,6 @@ export const RESOURCE_KIND_CONFIG: Record<
   whiteboard: { label: "Whiteboard", icon: WhiteboardIcon },
   project: { label: "Project", icon: Task01Icon },
   bookmark: { label: "Bookmark", icon: Bookmark01Icon },
+  agent: { label: "Agent", icon: AiUserIcon },
+  "ai-chat": { label: "AI chat", icon: AiChat02Icon },
 }

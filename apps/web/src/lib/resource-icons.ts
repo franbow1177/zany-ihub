@@ -1,4 +1,6 @@
 import {
+  AiChat02Icon,
+  AiUserIcon,
   Award01Icon,
   Book01Icon,
   Bookmark01Icon,
@@ -56,6 +58,8 @@ export type ResourceIconOption = {
 }
 
 export const RESOURCE_ICON_OPTIONS: ResourceIconOption[] = [
+  { name: "AiUserIcon", label: "AI agent", icon: AiUserIcon },
+  { name: "AiChat02Icon", label: "AI chat", icon: AiChat02Icon },
   { name: "Home01Icon", label: "Home", icon: Home01Icon },
   { name: "Folder01Icon", label: "Folder", icon: Folder01Icon },
   { name: "File01Icon", label: "File", icon: File01Icon },

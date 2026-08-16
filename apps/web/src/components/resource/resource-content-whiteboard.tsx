@@ -23,6 +23,7 @@ import {
 type PendingSave = {
   scene: WhiteboardScene
   files: BinaryFiles
+  signature: string
 }
 
 function blobToDataUrl(blob: Blob) {
@@ -51,6 +52,8 @@ export function ResourceContentWhiteboard({
   const timerRef = useRef<number | null>(null)
   const pendingRef = useRef<PendingSave | null>(null)
   const saveQueueRef = useRef(Promise.resolve())
+  const lastObservedSceneRef = useRef<string | null>(null)
+  const lastSavedSceneRef = useRef<string | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -84,6 +87,9 @@ export function ResourceContentWhiteboard({
         )
 
         revisionRef.current = content.revision
+        const initialSignature = JSON.stringify(content.scene)
+        lastObservedSceneRef.current = initialSignature
+        lastSavedSceneRef.current = initialSignature
         uploadedAssetIdsRef.current = new Set(
           content.assets.map((asset) => asset.id)
         )
@@ -146,8 +152,17 @@ export function ResourceContentWhiteboard({
         }
       )
       revisionRef.current = saved.revision
-      setStatus("saved")
+      lastSavedSceneRef.current = payload.signature
+      if (
+        lastObservedSceneRef.current === payload.signature &&
+        pendingRef.current === null
+      ) {
+        setStatus("saved")
+      }
     } catch (saveError) {
+      if (lastObservedSceneRef.current === payload.signature) {
+        lastObservedSceneRef.current = lastSavedSceneRef.current
+      }
       setError(
         saveError instanceof Error
           ? saveError.message
@@ -158,6 +173,7 @@ export function ResourceContentWhiteboard({
   }
 
   function queuePendingSave() {
+    timerRef.current = null
     const pending = pendingRef.current
     if (!pending) return
     pendingRef.current = null
@@ -223,15 +239,23 @@ export function ResourceContentWhiteboard({
             theme={resolvedTheme}
             name={resource.name}
             onChange={(elements, appState, files) => {
-              const serialized = JSON.parse(
-                serializeAsJSON(elements, appState, {}, "database")
-              ) as WhiteboardScene
+              const serializedText = serializeAsJSON(
+                elements,
+                appState,
+                {},
+                "database"
+              )
+              if (serializedText === lastObservedSceneRef.current) return
+
+              const serialized = JSON.parse(serializedText) as WhiteboardScene
+              lastObservedSceneRef.current = serializedText
               pendingRef.current = {
                 scene: {
                   elements: serialized.elements,
                   appState: serialized.appState,
                 },
                 files,
+                signature: serializedText,
               }
               setStatus("saving")
               if (timerRef.current !== null) {

@@ -27,9 +27,19 @@ docker compose up --build
 
 Compose project name is `zany-ihub`. Host Postgres uses **5433** so it does not clash with other OrbStack Postgres instances on 5432.
 
+Before real users exist, local PostgreSQL is intentionally disposable. See
+[docs/local-database-reset.md](docs/local-database-reset.md) for the exact reset
+policy and command.
+
 Inside containers, the API talks to Postgres at `postgres:5432` and MinIO at `minio:9000` (Compose overrides those URLs).
 
 File resources (`kind: file`) store bytes in the MinIO `zany-ihub` bucket via a 1:1 `resource_file` row. Swap MinIO for Cloudflare R2 later by changing `S3_*` env vars (same S3 API).
+
+Agent and AI chat resources use AI SDK 7 through OpenRouter. Add one
+`OPENROUTER_API_KEY` to `.env` to access the curated free, budget, and premium
+models. New agents and chats default to OpenRouter's rate-limited free router;
+the rest of the app runs without a key.
+
 ### Optional host-side Bun
 
 ```sh

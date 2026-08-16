@@ -67,7 +67,11 @@ export function WorkspaceShell({
                   members={members}
                 />
               )}
-              <WorkspaceMembers members={members} isLoading={isLoading} />
+              <WorkspaceMembers
+                workspaceId={workspace?.id}
+                members={members}
+                isLoading={isLoading}
+              />
             </div>
           </header>
           <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col p-4 sm:p-6 lg:p-8">

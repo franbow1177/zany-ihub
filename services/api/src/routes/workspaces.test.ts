@@ -6,6 +6,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { testUtils } from "better-auth/plugins"
 import type { TestHelpers } from "better-auth/plugins"
 import { app } from "../index"
+import { hashInvitationToken } from "../lib/invitations"
 
 type TestUser = ReturnType<TestHelpers["createUser"]>
 
@@ -25,6 +26,7 @@ let member: TestUser
 let candidate: TestUser
 let ownerHeaders: Headers
 let memberHeaders: Headers
+let candidateHeaders: Headers
 const workspaceIds: string[] = []
 
 async function request(
@@ -83,9 +85,10 @@ beforeAll(async () => {
     helpers.saveUser(member),
     helpers.saveUser(candidate),
   ])
-  ;[ownerHeaders, memberHeaders] = await Promise.all([
+  ;[ownerHeaders, memberHeaders, candidateHeaders] = await Promise.all([
     helpers.getAuthHeaders({ userId: owner.id }),
     helpers.getAuthHeaders({ userId: member.id }),
+    helpers.getAuthHeaders({ userId: candidate.id }),
   ])
 })
 
@@ -155,7 +158,7 @@ describe("workspace routes", () => {
     expect(hiddenResponse.status).toBe(404)
   })
 
-  test("only owners can add members and the role defaults to member", async () => {
+  test("only owners can create invitations", async () => {
     const workspace = await createWorkspace("Team")
     await db.insert(schema.workspaceMember).values({
       id: crypto.randomUUID(),
@@ -165,7 +168,7 @@ describe("workspace routes", () => {
     })
 
     const forbidden = await request(
-      `/workspaces/${workspace.id}/members`,
+      `/workspaces/${workspace.id}/invitations`,
       {
         method: "POST",
         body: JSON.stringify({ email: candidate.email }),
@@ -174,37 +177,225 @@ describe("workspace routes", () => {
     )
     expect(forbidden.status).toBe(403)
 
-    const added = await request(
-      `/workspaces/${workspace.id}/members`,
+    const created = await request(
+      `/workspaces/${workspace.id}/invitations`,
       {
         method: "POST",
         body: JSON.stringify({ email: candidate.email }),
       },
       ownerHeaders
     )
-    expect(added.status).toBe(200)
-    expect(await added.json()).toMatchObject({
-      userId: candidate.id,
+    expect(created.status).toBe(200)
+    const body = (await created.json()) as {
+      id: string
+      email: string
+      status: string
+      inviteUrl: string
+    }
+    expect(body).toMatchObject({
       email: candidate.email,
-      role: "member",
+      status: "pending",
     })
+    expect(body.inviteUrl).toContain("/invite/")
 
-    const members = await request(
-      `/workspaces/${workspace.id}/members`,
+    const token = new URL(body.inviteUrl).pathname.split("/").at(-1)!
+    const stored = await db.query.workspaceInvitation.findFirst({
+      where: (row, { eq }) => eq(row.id, body.id),
+    })
+    expect(stored?.tokenHash).toBe(await hashInvitationToken(token))
+    expect(stored?.tokenHash).not.toBe(token)
+
+    const forbiddenList = await request(
+      `/workspaces/${workspace.id}/invitations`,
       {},
       memberHeaders
     )
-    expect(members.status).toBe(200)
-    expect(await members.json()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ userId: owner.id, role: "owner" }),
-        expect.objectContaining({ userId: member.id, role: "member" }),
-        expect.objectContaining({ userId: candidate.id, role: "member" }),
-      ])
-    )
+    expect(forbiddenList.status).toBe(403)
   })
 
-  test("returns conflict when the user is already a workspace member", async () => {
+  test("invites an email that has never signed in", async () => {
+    const workspace = await createWorkspace("Future Collaborator")
+    const email = `future-${crypto.randomUUID()}@example.com`
+
+    const response = await request(
+      `/workspaces/${workspace.id}/invitations`,
+      {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      },
+      ownerHeaders
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ email, status: "pending" })
+  })
+
+  test("accepts an invitation with the matching Google account", async () => {
+    const workspace = await createWorkspace("Joinable Team")
+
+    const inviteResponse = await request(
+      `/workspaces/${workspace.id}/invitations`,
+      {
+        method: "POST",
+        body: JSON.stringify({ email: candidate.email }),
+      },
+      ownerHeaders
+    )
+    const invitation = (await inviteResponse.json()) as { inviteUrl: string }
+    const token = new URL(invitation.inviteUrl).pathname.split("/").at(-1)!
+
+    const preview = await request(`/invitations/${token}`)
+    expect(preview.status).toBe(200)
+    expect(await preview.json()).toMatchObject({
+      workspaceName: "Joinable Team",
+      inviterName: owner.name,
+      status: "pending",
+    })
+
+    const unsigned = await request(`/invitations/${token}/accept`, {
+      method: "POST",
+    })
+    expect(unsigned.status).toBe(401)
+
+    const wrongAccount = await request(
+      `/invitations/${token}/accept`,
+      { method: "POST" },
+      memberHeaders
+    )
+    expect(wrongAccount.status).toBe(403)
+
+    const accepted = await request(
+      `/invitations/${token}/accept`,
+      { method: "POST" },
+      candidateHeaders
+    )
+    expect(accepted.status).toBe(200)
+    expect(await accepted.json()).toEqual(workspace)
+
+    const repeated = await request(
+      `/invitations/${token}/accept`,
+      { method: "POST" },
+      candidateHeaders
+    )
+    expect(repeated.status).toBe(200)
+
+    const membership = await db.query.workspaceMember.findFirst({
+      where: (row, { and, eq }) =>
+        and(eq(row.workspaceId, workspace.id), eq(row.userId, candidate.id)),
+    })
+    expect(membership?.role).toBe("member")
+
+    const pending = await request(
+      `/workspaces/${workspace.id}/invitations`,
+      {},
+      ownerHeaders
+    )
+    expect(await pending.json()).toEqual([])
+
+    await db
+      .delete(schema.workspaceMember)
+      .where(eq(schema.workspaceMember.id, membership!.id))
+    const removedMemberRetry = await request(
+      `/invitations/${token}/accept`,
+      { method: "POST" },
+      candidateHeaders
+    )
+    expect(removedMemberRetry.status).toBe(410)
+  })
+
+  test("rotates invitation tokens when resent", async () => {
+    const workspace = await createWorkspace("Resend Team")
+    const created = await request(
+      `/workspaces/${workspace.id}/invitations`,
+      {
+        method: "POST",
+        body: JSON.stringify({ email: candidate.email }),
+      },
+      ownerHeaders
+    )
+    const first = (await created.json()) as { id: string; inviteUrl: string }
+    const firstToken = new URL(first.inviteUrl).pathname.split("/").at(-1)!
+
+    const resent = await request(
+      `/workspaces/${workspace.id}/invitations/${first.id}/resend`,
+      { method: "POST" },
+      ownerHeaders
+    )
+    expect(resent.status).toBe(200)
+    const second = (await resent.json()) as { inviteUrl: string }
+    expect(second.inviteUrl).not.toBe(first.inviteUrl)
+
+    expect((await request(`/invitations/${firstToken}`)).status).toBe(404)
+    const secondToken = new URL(second.inviteUrl).pathname.split("/").at(-1)!
+    expect((await request(`/invitations/${secondToken}`)).status).toBe(200)
+  })
+
+  test("revokes a pending invitation", async () => {
+    const workspace = await createWorkspace("Revoked Team")
+    const created = await request(
+      `/workspaces/${workspace.id}/invitations`,
+      {
+        method: "POST",
+        body: JSON.stringify({ email: candidate.email }),
+      },
+      ownerHeaders
+    )
+    const invitation = (await created.json()) as {
+      id: string
+      inviteUrl: string
+    }
+    const token = new URL(invitation.inviteUrl).pathname.split("/").at(-1)!
+
+    const revoked = await request(
+      `/workspaces/${workspace.id}/invitations/${invitation.id}`,
+      { method: "DELETE" },
+      ownerHeaders
+    )
+    expect(revoked.status).toBe(204)
+
+    const accept = await request(
+      `/invitations/${token}/accept`,
+      { method: "POST" },
+      candidateHeaders
+    )
+    expect(accept.status).toBe(410)
+  })
+
+  test("does not accept an expired invitation", async () => {
+    const workspace = await createWorkspace("Expired Team")
+    const created = await request(
+      `/workspaces/${workspace.id}/invitations`,
+      {
+        method: "POST",
+        body: JSON.stringify({ email: candidate.email }),
+      },
+      ownerHeaders
+    )
+    const invitation = (await created.json()) as {
+      id: string
+      inviteUrl: string
+    }
+    const token = new URL(invitation.inviteUrl).pathname.split("/").at(-1)!
+    await db
+      .update(schema.workspaceInvitation)
+      .set({ expiresAt: new Date(Date.now() - 1_000) })
+      .where(eq(schema.workspaceInvitation.id, invitation.id))
+
+    const response = await request(
+      `/invitations/${token}/accept`,
+      { method: "POST" },
+      candidateHeaders
+    )
+    expect(response.status).toBe(410)
+    expect(
+      await db.query.workspaceMember.findFirst({
+        where: (row, { and, eq }) =>
+          and(eq(row.workspaceId, workspace.id), eq(row.userId, candidate.id)),
+      })
+    ).toBeUndefined()
+  })
+
+  test("returns conflict when inviting an existing workspace member", async () => {
     const workspace = await createWorkspace("Duplicate Invite")
     await db.insert(schema.workspaceMember).values({
       id: crypto.randomUUID(),
@@ -214,29 +405,14 @@ describe("workspace routes", () => {
     })
 
     const response = await request(
-      `/workspaces/${workspace.id}/members`,
+      `/workspaces/${workspace.id}/invitations`,
       {
         method: "POST",
-        body: JSON.stringify({ email: candidate.email }),
+        body: JSON.stringify({ email: candidate.email.toUpperCase() }),
       },
       ownerHeaders
     )
 
     expect(response.status).toBe(409)
-  })
-
-  test("does not allow owners to be added through the member endpoint", async () => {
-    const workspace = await createWorkspace("No Co-owners")
-
-    const response = await request(
-      `/workspaces/${workspace.id}/members`,
-      {
-        method: "POST",
-        body: JSON.stringify({ email: candidate.email, role: "owner" }),
-      },
-      ownerHeaders
-    )
-
-    expect(response.status).toBe(422)
   })
 })

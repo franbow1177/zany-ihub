@@ -98,6 +98,8 @@ const resourceKind = t.Union([
   t.Literal("whiteboard"),
   t.Literal("project"),
   t.Literal("bookmark"),
+  t.Literal("agent"),
+  t.Literal("ai-chat"),
 ])
 
 const bookmarkTarget = t.Union([
@@ -232,6 +234,10 @@ export const resourceRoutes = new Elysia({ name: "resource-routes" })
             id,
             ...bookmarkValues,
           })
+        } else if (body.kind === "agent") {
+          await tx.insert(schema.resourceAgent).values({ id })
+        } else if (body.kind === "ai-chat") {
+          await tx.insert(schema.resourceAiChat).values({ id })
         }
 
         return resource
